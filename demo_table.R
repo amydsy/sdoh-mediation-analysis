@@ -16,7 +16,7 @@ dir$code    <- file.path(dir$root, "code")
 # Load Required Packages------
 # List of required packages
 want <- c("dplyr", "survey", "foreign", "Hmisc", "data.table", "tidyr", 
-          "tibble", "readr", "flextable", "officer", "usethis")
+          "tibble", "readr", "flextable", "officer", "usethis", "gert")
 
 # Install any missing packages
 need <- want[!(want %in% installed.packages()[,"Package"])]
@@ -71,7 +71,7 @@ map_variable_labels_once <- function(var_vector) {
   }, USE.NAMES = FALSE)
 }
 
-# === Categorical variables ===
+#### Summarize Categorical variables-----
 cat_vars <- c("SEX", "RACE", "EDU", "pir", "SNAP", "SMK", "ALCG2", "bmic")
 
 cat_results <- lapply(cat_vars, function(v) {
@@ -91,7 +91,7 @@ cat_results <- lapply(cat_vars, function(v) {
   )
 }) %>% bind_rows()
 
-# === Binary variables ===
+#### Summarize Binary variables------
 binary_vars <- c("DIABE", "CVD", "dm_rx", "chol_rx", "angina", "cancer", "lung_disease", "MORTSTAT")
 
 binary_results <- lapply(binary_vars, function(v) {
@@ -108,7 +108,7 @@ binary_results <- lapply(binary_vars, function(v) {
   )
 }) %>% bind_rows()
 
-# === Continuous variables ===
+#### Summarize Continuous variables------
 cont_vars <- c("RIDAGEYR", "met_hr", "hba1c", "sbp", "dbp", "hdl", "ldl", "tg", "HEI2015_TOTAL_SCORE")
 
 cont_results <- lapply(cont_vars, function(v) {
@@ -129,7 +129,7 @@ cat_results$Variable <- map_variable_labels_once(cat_results$Variable)
 binary_results$Variable <- map_variable_labels_once(binary_results$Variable)
 cont_results$Variable <- map_variable_labels_once(cont_results$Variable)
 
-# === Category label mapping ===
+#### Category label mapping------
 category_labels <- list(
   sex = c("1" = "Male", "2" = "Female"),
   Race = c("1" = "Non-Hispanic White", "2" = "Non-Hispanic Black", "3" = "Hispanic", "4" = "Other"),
@@ -153,7 +153,7 @@ cat_results <- cat_results %>%
   ) %>%
   ungroup()
 
-# === Final merge ===
+# Final merge -------
 demo_summary <- bind_rows(cat_results, binary_results, cont_results)
 
 # Define which variables should show Mean (SD) instead of Count (%)
@@ -201,7 +201,6 @@ demo_summary <- demo_summary %>%
   ) %>%
   select(Group, Variable, Category, `Primary population`)
 
-
  demo_summary <- demo_summary %>%
    mutate(
      Category = ifelse(Variable %in% c(mean_sd_vars, map_variable_labels_once(binary_vars)), "", Category)
@@ -217,9 +216,8 @@ write_csv(demo_summary, "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_sum
 
 # Format your summary table as a flextable
 demo_flex <- flextable(demo_summary)
-
 # Optional: Auto fit columns
-demo_flex <- autofit(demo_flex)
+# demo_flex <- autofit(demo_flex)
 
 # Create a new Word document and add the flextable
 doc <- read_docx() %>%
