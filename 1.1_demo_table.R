@@ -1,5 +1,5 @@
 
-# Setup: Packages and Directories-------
+# 1 Setup: Packages and Directories-------
 
 
 # Set working directory to analysis folder
@@ -27,9 +27,9 @@ lapply(want, function(pkg) require(pkg, character.only = TRUE))
 rm(want, need)
 
 
-# Generate Demographic Summary Table Using Survey Design-------
+# 2 Generate Demographic Summary Table Using Survey Design-------
 # Load NHANES dataset
-df <- fread(file.path(dir$data, "SODH_diet_mort.csv"))
+df <- fread(file.path(dir$data, "SODH_diet_mort_depr.csv"))
 
 df <- df %>% filter(!is.na(wt10) & !is.na(sdmvstra) & !is.na(sdmvpsu))
 
@@ -57,7 +57,7 @@ variable_labels <- c(
   RIDAGEYR = "Age, years", met_hr = "Physical activity", hba1c = "HbA1c", # bmi = "BMI_raw"
   sbp = "Systolic Blood Pressure", dbp = "Diastolic Blood Pressure", 
   hdl = "High-Density Lipoprotein", ldl = "Low-Density Lipoprotein", tg = "Triglycerides",
-  HEI2015_TOTAL_SCORE = "HEI2015"
+  HEI2015_TOTAL_SCORE = "HEI2015", probable_depression = "Depression"
 )
 
 # Helper function to map variable names once only
@@ -92,7 +92,7 @@ cat_results <- lapply(cat_vars, function(v) {
 }) %>% bind_rows()
 
 #### Summarize Binary variables------
-binary_vars <- c("DIABE", "CVD", "dm_rx", "chol_rx", "angina", "cancer", "lung_disease", "MORTSTAT")
+binary_vars <- c("DIABE", "CVD", "dm_rx", "chol_rx", "angina", "cancer", "lung_disease", "MORTSTAT", "probable_depression")
 
 binary_results <- lapply(binary_vars, function(v) {
   count <- sum(nhanes_design$variables[[v]] == 1, na.rm = TRUE)
@@ -153,7 +153,7 @@ cat_results <- cat_results %>%
   ) %>%
   ungroup()
 
-# Final merge -------
+# 3 Final merge -------
 demo_summary <- bind_rows(cat_results, binary_results, cont_results)
 
 # Define which variables should show Mean (SD) instead of Count (%)
@@ -179,7 +179,7 @@ demo_summary <- demo_summary %>%
 variable_groups <- list(
   "Sociodemographics" = c("sex", "Race", "edu", "Family income to poverty ratio", "SNAP"),
   "Health Behaviors" = c("smk", "Drinking", "Physical activity"),
-  "Clinical Characteristics" = c("BMI", "hba1c", "Diabetes", "DiabetesRx", "CVD", "ang", "Cancer", "Cholestory", "lung-disease", "Death"),
+  "Clinical Characteristics" = c("BMI", "hba1c", "Diabetes", "DiabetesRx", "CVD", "ang", "Cancer", "Cholestory", "lung-disease", "Depression","Death"),
   "Dietary & Physiologic Measures" = c("Age, years", "sbp", "dbp", "hdl", "ldl", "tg", "hei2015_")
 )
 
