@@ -1,7 +1,6 @@
 
 # 1 Setup: Packages and Directories-------
 
-
 # Set working directory to analysis folder
 setwd("/Users/dengshuyue/Desktop/SDOH/analysis")
 
@@ -28,13 +27,13 @@ rm(want, need)
 
 
 # 2 Generate Demographic Summary Table Using Survey Design-------
+
 # Load NHANES dataset
 df <- fread(file.path(dir$data, "SODH_diet_mort_depr.csv"))
 
 df <- df %>% filter(!is.na(wt10) & !is.na(sdmvstra) & !is.na(sdmvpsu))
 
 # re-assign bmic (double checking)
-
 df$bmic <- with(df, ifelse(bmi > 0 & bmi < 18.5, 0,
                            ifelse(bmi >= 18.5 & bmi < 25, 1,
                                   ifelse(bmi >= 25 & bmi < 30, 2,
@@ -54,8 +53,8 @@ variable_labels <- c(
   SNAP = "SNAP", SMK = "smk", ALCG2 = "Drinking", bmic = "BMI",
   DIABE = "Diabetes", CVD = "CVD", dm_rx = "DiabetesRx", chol_rx = "Cholestory",
   angina = "Angina", cancer = "Cancer", lung_disease = "Lung-disease", MORTSTAT = "Death",
-  RIDAGEYR = "Age, years", met_hr = "Physical activity", hba1c = "HbA1c", # bmi = "BMI_raw"
-  sbp = "Systolic Blood Pressure", dbp = "Diastolic Blood Pressure", 
+  RIDAGEYR = "Age, years", met_hr = "Physical activity", hba1c = "HbA1c",
+  sbp = "Systolic Blood Pressure", dbp = "Diastolic Blood Pressure",
   hdl = "High-Density Lipoprotein", ldl = "Low-Density Lipoprotein", tg = "Triglycerides",
   HEI2015_TOTAL_SCORE = "HEI2015", probable_depression = "Depression"
 )
@@ -95,7 +94,7 @@ cat_results <- lapply(cat_vars, function(v) {
 binary_vars <- c("DIABE", "CVD", "dm_rx", "chol_rx", "angina", "cancer", "lung_disease", "MORTSTAT", "probable_depression")
 
 binary_results <- lapply(binary_vars, function(v) {
-  count <- sum(nhanes_design$variables[[v]] == 1, na.rm = TRUE)
+  count <- sum(df[[v]] == 1, na.rm = TRUE)
   mean_obj <- svymean(as.formula(paste0("~", v)), nhanes_design, na.rm = TRUE)
   
   data.frame(
@@ -138,7 +137,7 @@ category_labels <- list(
   SNAP = c("1" = "Not participant", "2" = "Participant", "3" = "income eligible non-participant"),
   smk = c("1" = "Nonsmokers", "2" = "Former smokers", "3" = "<15 cigarettes/day", "4" = "15-24.9 cigarettes/day", "5" = "≥ 25 cigarettes/day"),
   Drinking = c("1" = "Nondrinkers", "2" = "Moderate drinker", "3" = "Heavy drinker", "4" = "Missing"),
-  BMI = c("0" = "BMI <18.5 kg/m2", "1" = "18-24.9 kg/m2", "2" = "25-29.9 kg/m2", "3" = "BMI ≥30 kg/m2")
+  BMI = c("0" = "<18.5 kg/m2", "1" = "18-24.9 kg/m2", "2" = "25-29.9 kg/m2", "3" = "≥30 kg/m2")
 )
 
 cat_results <- cat_results %>%
@@ -153,69 +152,84 @@ cat_results <- cat_results %>%
   ) %>%
   ungroup()
 
-# 3 Final merge -------
-demo_summary <- bind_rows(cat_results, binary_results, cont_results)
+# Continue with merge and formatting steps...
 
-# Define which variables should show Mean (SD) instead of Count (%)
-mean_sd_vars <- c(
-  "Age, years", "Physical activity", "HbA1c", 
-  "Systolic Blood Pressure", "Diastolic Blood Pressure", "High-Density Lipoprotein", "Low-Density Lipoprotein", "Triglycerides", "HEI2015"
-)
 
-# Create unified display column
-demo_summary <- demo_summary %>%
+
+
+# 3. Combine all ------------
+full_summary <- bind_rows(cat_results, binary_results, cont_results)
+
+# Reorder BMI categories
+bmi_levels_ordered <- c("<18.5 kg/m2", "18-24.9 kg/m2", "25-29.9 kg/m2", "≥30 kg/m2")
+full_summary <- full_summary %>%
   mutate(
-    `Primary population` = case_when(
-      Variable %in% mean_sd_vars ~ paste0(Mean_or_Percent, " (", SE, ")"),
-      TRUE ~ paste0(Count, " (", Mean_or_Percent, "%)")
-    )
-  ) %>%
-  select(Variable, Category, `Primary population`)
+    Category = if_else(Variable == "BMI", as.character(factor(Category, levels = bmi_levels_ordered)), Category)
+  )
 
+# Unified display
+mean_sd_vars <- c("Age, years", "Physical activity", "HbA1c", 
+                  "Systolic Blood Pressure", "Diastolic Blood Pressure",
+                  "High-Density Lipoprotein", "Low-Density Lipoprotein",
+                  "Triglycerides", "HEI2015")
 
-#### group those varibales -----
+full_summary <- full_summary %>%
+  mutate(`Primary population` = ifelse(Variable %in% mean_sd_vars,
+                                       paste0(Mean_or_Percent, " (", SE, ")"),
+                                       paste0(Count, " (", Mean_or_Percent, "%)")))
 
-# Define groupings
-variable_groups <- list(
+# Add groups
+groupings <- list(
   "Sociodemographics" = c("sex", "Race", "edu", "Family income to poverty ratio", "SNAP"),
   "Health Behaviors" = c("smk", "Drinking", "Physical activity"),
-  "Clinical Characteristics" = c("BMI", "hba1c", "Diabetes", "DiabetesRx", "CVD", "ang", "Cancer", "Cholestory", "lung-disease", "Depression","Death"),
-  "Dietary & Physiologic Measures" = c("Age, years", "sbp", "dbp", "hdl", "ldl", "tg", "hei2015_")
+  "Clinical Characteristics" = c("BMI", "HbA1c", "Diabetes", "DiabetesRx", "CVD", "Angina", "Cancer", "Cholestory", "Lung-disease", "Depression", "Death"),
+  "Dietary & Physiologic Measures" = c("Age, years", "Systolic Blood Pressure", "Diastolic Blood Pressure", 
+                                       "High-Density Lipoprotein", "Low-Density Lipoprotein", "Triglycerides", "HEI2015")
 )
 
-group_lookup <- enframe(variable_groups, name = "Group", value = "Variable") %>%
-  unnest(cols = c(Variable))
+group_df <- enframe(groupings, name = "Group", value = "Variable") %>% unnest(cols = c(Variable))
 
-# Attach the group label and sort:
-demo_summary <- demo_summary %>%
-  left_join(group_lookup, by = "Variable") %>%
-  arrange(factor(Group, levels = names(variable_groups)), 
-          factor(Variable, levels = unlist(variable_groups)), 
-          Category)
-
-# Display cleaner table with group headers
- demo_summary <- demo_summary %>%
+full_summary <- full_summary %>% left_join(group_df, by = "Variable") %>%
   mutate(
-    Variable = ifelse(duplicated(Variable), "", Variable),
-    Group = ifelse(duplicated(Group), "", Group)
+    Group = factor(Group, levels = names(groupings)),
+    Variable = factor(Variable, levels = unlist(groupings))
+  ) %>%
+  arrange(Group, Variable, factor(Category, levels = bmi_levels_ordered))
+
+# Clean final display
+full_summary <- full_summary %>%
+  mutate(
+    Category = ifelse(Variable %in% c(mean_sd_vars, map_variable_labels_once(binary_vars)), "", Category),
+    Variable = ifelse(duplicated(Variable), "", as.character(Variable)),
+    Group = ifelse(duplicated(Group), "", as.character(Group))
   ) %>%
   select(Group, Variable, Category, `Primary population`)
 
- demo_summary <- demo_summary %>%
-   mutate(
-     Category = ifelse(Variable %in% c(mean_sd_vars, map_variable_labels_once(binary_vars)), "", Category)
-   ) %>%
-   group_by(Variable) %>%
-   mutate(
-     Variable = if_else(row_number() == 1, Variable, ""),
-     Group = if_else(row_number() == 1, Group, "")
-   ) %>%
-   ungroup()
+# Export
+write_csv(full_summary, "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_summary_table.csv")
 
-write_csv(demo_summary, "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_summary_table.csv")
+# Display
+demo_flex <- flextable(full_summary)
 
-# Format your summary table as a flextable
-demo_flex <- flextable(demo_summary)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Optional: Auto fit columns
 # demo_flex <- autofit(demo_flex)
 
