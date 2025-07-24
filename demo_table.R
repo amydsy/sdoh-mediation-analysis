@@ -16,7 +16,7 @@ dir$code    <- file.path(dir$root, "code")
 # Load Required Packages------
 # List of required packages
 want <- c("dplyr", "survey", "foreign", "Hmisc", "data.table", "tidyr", 
-          "tibble", "readr")
+          "tibble", "readr", "flextable", "officer", "usethis")
 
 # Install any missing packages
 need <- want[!(want %in% installed.packages()[,"Package"])]
@@ -33,6 +33,13 @@ df <- fread(file.path(dir$data, "SODH_diet_mort.csv"))
 
 df <- df %>% filter(!is.na(wt10) & !is.na(sdmvstra) & !is.na(sdmvpsu))
 
+# re-assign bmic (double checking)
+
+df$bmic <- with(df, ifelse(bmi > 0 & bmi < 18.5, 0,
+                           ifelse(bmi >= 18.5 & bmi < 25, 1,
+                                  ifelse(bmi >= 25 & bmi < 30, 2,
+                                         ifelse(bmi >= 30, 3, 4)))))
+
 nhanes_design <- svydesign(
   id = ~sdmvpsu,
   strata = ~sdmvstra,
@@ -45,11 +52,12 @@ nhanes_design <- svydesign(
 variable_labels <- c(
   SEX = "sex", RACE = "Race", EDU = "edu", pir = "Family income to poverty ratio",
   SNAP = "SNAP", SMK = "smk", ALCG2 = "Drinking", bmic = "BMI",
-  DIABE = "Diabetes", CVD = "CVD", dm_rx = "DM_rx", chol_rx = "Cholestory",
-  angina = "ang", cancer = "Cancer", lung_disease = "lung-disease", MORTSTAT = "Death",
-  RIDAGEYR = "Age, years", met_hr = "Physical activity", bmi = "BMI", hba1c = "hba1c",
-  sbp = "sbp", dbp = "dbp", hdl = "hdl", ldl = "ldl", tg = "tg",
-  HEI2015_TOTAL_SCORE = "hei2015_"
+  DIABE = "Diabetes", CVD = "CVD", dm_rx = "DiabetesRx", chol_rx = "Cholestory",
+  angina = "Angina", cancer = "Cancer", lung_disease = "Lung-disease", MORTSTAT = "Death",
+  RIDAGEYR = "Age, years", met_hr = "Physical activity", hba1c = "HbA1c", # bmi = "BMI_raw"
+  sbp = "Systolic Blood Pressure", dbp = "Diastolic Blood Pressure", 
+  hdl = "High-Density Lipoprotein", ldl = "Low-Density Lipoprotein", tg = "Triglycerides",
+  HEI2015_TOTAL_SCORE = "HEI2015"
 )
 
 # Helper function to map variable names once only
@@ -101,7 +109,7 @@ binary_results <- lapply(binary_vars, function(v) {
 }) %>% bind_rows()
 
 # === Continuous variables ===
-cont_vars <- c("RIDAGEYR", "met_hr", "bmi", "hba1c", "sbp", "dbp", "hdl", "ldl", "tg", "HEI2015_TOTAL_SCORE")
+cont_vars <- c("RIDAGEYR", "met_hr", "hba1c", "sbp", "dbp", "hdl", "ldl", "tg", "HEI2015_TOTAL_SCORE")
 
 cont_results <- lapply(cont_vars, function(v) {
   count <- sum(!is.na(df[[v]]))
@@ -130,7 +138,7 @@ category_labels <- list(
   SNAP = c("1" = "Not participant", "2" = "Participant", "3" = "income eligible non-participant"),
   smk = c("1" = "Nonsmokers", "2" = "Former smokers", "3" = "<15 cigarettes/day", "4" = "15-24.9 cigarettes/day", "5" = "≥ 25 cigarettes/day"),
   Drinking = c("1" = "Nondrinkers", "2" = "Moderate drinker", "3" = "Heavy drinker", "4" = "Missing"),
-  BMI = c("1" = "BMI <18.5 kg/m2", "2" = "18-24.9 kg/m2", "3" = "25-29.9 kg/m2", "4" = "BMI ≥30 kg/m2")
+  BMI = c("0" = "BMI <18.5 kg/m2", "1" = "18-24.9 kg/m2", "2" = "25-29.9 kg/m2", "3" = "BMI ≥30 kg/m2")
 )
 
 cat_results <- cat_results %>%
@@ -150,8 +158,8 @@ demo_summary <- bind_rows(cat_results, binary_results, cont_results)
 
 # Define which variables should show Mean (SD) instead of Count (%)
 mean_sd_vars <- c(
-  "Age, years", "Physical activity", "hba1c", 
-  "sbp", "dbp", "hdl", "ldl", "tg", "hei2015_"
+  "Age, years", "Physical activity", "HbA1c", 
+  "Systolic Blood Pressure", "Diastolic Blood Pressure", "High-Density Lipoprotein", "Low-Density Lipoprotein", "Triglycerides", "HEI2015"
 )
 
 # Create unified display column
@@ -171,7 +179,7 @@ demo_summary <- demo_summary %>%
 variable_groups <- list(
   "Sociodemographics" = c("sex", "Race", "edu", "Family income to poverty ratio", "SNAP"),
   "Health Behaviors" = c("smk", "Drinking", "Physical activity"),
-  "Clinical Characteristics" = c("BMI", "hba1c", "Diabetes", "DM_rx", "CVD", "ang", "Cancer", "Cholestory", "lung-disease", "Death"),
+  "Clinical Characteristics" = c("BMI", "hba1c", "Diabetes", "DiabetesRx", "CVD", "ang", "Cancer", "Cholestory", "lung-disease", "Death"),
   "Dietary & Physiologic Measures" = c("Age, years", "sbp", "dbp", "hdl", "ldl", "tg", "hei2015_")
 )
 
@@ -186,7 +194,7 @@ demo_summary <- demo_summary %>%
           Category)
 
 # Display cleaner table with group headers
-demo_summary <- demo_summary %>%
+ demo_summary <- demo_summary %>%
   mutate(
     Variable = ifelse(duplicated(Variable), "", Variable),
     Group = ifelse(duplicated(Group), "", Group)
@@ -194,8 +202,35 @@ demo_summary <- demo_summary %>%
   select(Group, Variable, Category, `Primary population`)
 
 
-# === View first rows ===
-head(demo_summary, 50)
+ demo_summary <- demo_summary %>%
+   mutate(
+     Category = ifelse(Variable %in% c(mean_sd_vars, map_variable_labels_once(binary_vars)), "", Category)
+   ) %>%
+   group_by(Variable) %>%
+   mutate(
+     Variable = if_else(row_number() == 1, Variable, ""),
+     Group = if_else(row_number() == 1, Group, "")
+   ) %>%
+   ungroup()
 
-write_csv(demo_summary, "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_summary_r.csv")
+write_csv(demo_summary, "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_summary_table.csv")
+
+# Format your summary table as a flextable
+demo_flex <- flextable(demo_summary)
+
+# Optional: Auto fit columns
+demo_flex <- autofit(demo_flex)
+
+# Create a new Word document and add the flextable
+doc <- read_docx() %>%
+  body_add_par("Table 1. Descriptive characteristics of the primary population", style = "heading 1") %>%
+  body_add_flextable(demo_flex)
+
+# Save the document
+print(doc, target = "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_summary_table.docx")
+
+
+
+
+
 
