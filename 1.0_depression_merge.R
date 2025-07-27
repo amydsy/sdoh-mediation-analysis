@@ -74,7 +74,7 @@ write_csv(phq_data, file.path(dir$data, "depression_combined.csv"))
 
 # 3.1. Read in your depression data and main dataset
 phq_data <- read_csv(file.path(dir$data, "depression_combined.csv"))
-main_data <- read_csv(file.path(dir$data, "SODH_diet_mort.csv"))
+main_data <- read_csv(file.path(dir$data, "SODH_diet_mort2.csv"))
 
 # 3.2 Filter to the most recent cycle before merging ------
 phq_data <- phq_data %>%

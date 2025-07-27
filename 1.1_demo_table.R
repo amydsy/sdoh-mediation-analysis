@@ -28,56 +28,62 @@ rm(want, need)
 
 # 2 Generate Demographic Summary Table Using Survey Design-------
 
-# Load NHANES dataset
+# 2.1. Load NHANES dataset -----
 df <- fread(file.path(dir$data, "SODH_diet_mort_depr.csv"))
-
 df <- df %>% filter(!is.na(wt10) & !is.na(sdmvstra) & !is.na(sdmvpsu))
 
-# re-assign bmic (double checking)
-df$bmic <- with(df, ifelse(bmi > 0 & bmi < 18.5, 0,
-                           ifelse(bmi >= 18.5 & bmi < 25, 1,
-                                  ifelse(bmi >= 25 & bmi < 30, 2,
-                                         ifelse(bmi >= 30, 3, 4)))))
+# 2.2. Reassign BMI category -------
+# revised the coding when merging/data cleaning so no need this step 
 
-nhanes_design <- svydesign(
-  id = ~sdmvpsu,
-  strata = ~sdmvstra,
-  weights = ~wt10,
-  data = df,
-  nest = TRUE
-)
+# df$bmic <- with(df, ifelse(bmi > 0 & bmi < 18.5, 0,
+#                           ifelse(bmi >= 18.5 & bmi < 25, 1,
+#                                  ifelse(bmi >= 25 & bmi < 30, 2,
+#                                         ifelse(bmi >= 30, 3, 4)))))
 
-# === Variable name mapping (original variable names only) ===
+table(df$pir)
+table(df$SNAP)
+table(df$bmic)
+
+# 2.3. Define labeled variable names ------
 variable_labels <- c(
-  SEX = "sex", RACE = "Race", EDU = "edu", pir = "Family income to poverty ratio",
-  SNAP = "SNAP", SMK = "smk", ALCG2 = "Drinking", bmic = "BMI",
+  SEX = "Sex", RACE = "Race", EDU = "Education", pir = "Family income to poverty ratio", FS = "Food Insecurity",
+  SNAP3 = "SNAP", SMK = "Smoking status", ALCG2 = "Drinking status", bmic = "BMI",
   DIABE = "Diabetes", CVD = "CVD", dm_rx = "DiabetesRx", chol_rx = "Cholestory",
   angina = "Angina", cancer = "Cancer", lung_disease = "Lung-disease", MORTSTAT = "Death",
-  RIDAGEYR = "Age, years", met_hr = "Physical activity", hba1c = "HbA1c",
+  RIDAGEYR = "Age, years", met_hr = "Physical activity, median (SE)", hba1c = "HbA1c",
   sbp = "Systolic Blood Pressure", dbp = "Diastolic Blood Pressure",
   hdl = "High-Density Lipoprotein", ldl = "Low-Density Lipoprotein", tg = "Triglycerides",
   HEI2015_TOTAL_SCORE = "HEI2015", probable_depression = "Depression"
 )
 
-# Helper function to map variable names once only
 map_variable_labels_once <- function(var_vector) {
-  sapply(var_vector, function(v) {
-    if (v %in% names(variable_labels)) {
-      variable_labels[[v]]
-    } else {
-      v
-    }
-  }, USE.NAMES = FALSE)
+  sapply(var_vector, function(v) if (v %in% names(variable_labels)) variable_labels[[v]] else v, USE.NAMES = FALSE)
 }
 
-#### Summarize Categorical variables-----
-cat_vars <- c("SEX", "RACE", "EDU", "pir", "SNAP", "SMK", "ALCG2", "bmic")
+# 2.4. Rename df columns just once ------
+df_labeled <- df
+names(df_labeled) <- map_variable_labels_once(names(df_labeled))
+
+###### Create formula-safe function
+as_var_formula <- function(v) as.formula(paste0("~`", v, "`"))
+
+# 2.5. Survey design -----
+nhanes_design <- svydesign(
+  id = ~sdmvpsu,
+  strata = ~sdmvstra,
+  weights = ~wt10,
+  data = df_labeled,
+  nest = TRUE
+)
+
+# 2.6. Categorical variables ------
+cat_vars <- c("Sex", "Race", "Education", "Family income to poverty ratio", "SNAP", "Smoking status", "Drinking status", "BMI", "Food Insecurity")
 
 cat_results <- lapply(cat_vars, function(v) {
-  unweighted_tab <- table(df[[v]])
-  tab <- svytable(as.formula(paste0("~", v)), design = nhanes_design)
+  unweighted_tab <- table(df_labeled[[v]])
+  tab <- svytable(as_var_formula(v), design = nhanes_design)
   pct <- prop.table(tab) * 100
-  means <- svymean(as.formula(paste0("~", v)), design = nhanes_design, na.rm = TRUE)
+  means <- svymean(as_var_formula(v), design = nhanes_design, na.rm = TRUE)
   se <- SE(means) * 100
   
   data.frame(
@@ -90,12 +96,12 @@ cat_results <- lapply(cat_vars, function(v) {
   )
 }) %>% bind_rows()
 
-#### Summarize Binary variables------
-binary_vars <- c("DIABE", "CVD", "dm_rx", "chol_rx", "angina", "cancer", "lung_disease", "MORTSTAT", "probable_depression")
+# 2.7. Binary variables ------
+binary_vars <- c("Diabetes", "CVD", "DiabetesRx", "Cholestory", "Angina", "Cancer", "Lung-disease", "Death", "Depression")
 
 binary_results <- lapply(binary_vars, function(v) {
-  count <- sum(df[[v]] == 1, na.rm = TRUE)
-  mean_obj <- svymean(as.formula(paste0("~", v)), nhanes_design, na.rm = TRUE)
+  count <- sum(df_labeled[[v]] == 1, na.rm = TRUE)
+  mean_obj <- svymean(as_var_formula(v), nhanes_design, na.rm = TRUE)
   
   data.frame(
     Variable = v,
@@ -107,36 +113,71 @@ binary_results <- lapply(binary_vars, function(v) {
   )
 }) %>% bind_rows()
 
-#### Summarize Continuous variables------
-cont_vars <- c("RIDAGEYR", "met_hr", "hba1c", "sbp", "dbp", "hdl", "ldl", "tg", "HEI2015_TOTAL_SCORE")
+# 2.8. Continuous variables ------
+cont_vars <- c("Age, years", "Physical activity, median (SE)", "HbA1c", "Systolic Blood Pressure", 
+               "Diastolic Blood Pressure", "High-Density Lipoprotein", 
+               "Low-Density Lipoprotein", "Triglycerides", "HEI2015")
+
+#cont_results <- lapply(cont_vars, function(v) {
+#  count <- sum(!is.na(df_labeled[[v]]))
+#  stat <- svymean(as_var_formula(v), nhanes_design, na.rm = TRUE)
+  
+#  data.frame(
+#    Variable = v,
+#    Count = count,
+#    Mean_or_Percent = round(coef(stat)[[1]], 2),
+#    SE = round(SE(stat)[[1]], 2),
+#    Type = "Continuous"
+#  )
+#}) %>% bind_rows()
+
 
 cont_results <- lapply(cont_vars, function(v) {
-  count <- sum(!is.na(df[[v]]))
-  stat <- svymean(as.formula(paste0("~", v)), nhanes_design, na.rm = TRUE)
+  count <- sum(!is.na(df_labeled[[v]]))
   
-  data.frame(
-    Variable = v,
-    Count = count,
-    Mean_or_Percent = round(coef(stat)[[1]], 2),
-    SE = round(SE(stat)[[1]], 2),
-    Type = "Continuous"
-  )
+  if (v == "Physical activity, median (SE)") {
+    med <- svyquantile(as.formula(paste0("~`", v, "`")), nhanes_design, quantiles = 0.5, na.rm = TRUE)
+    
+    return(data.frame(
+      Variable = v,
+      Count = count,
+      Mean_or_Percent = round(med[[1]], 2),
+      SE = NA,
+      Type = "Continuous (Median)"
+    ))
+    
+  } else {
+    stat <- svymean(as.formula(paste0("~`", v, "`")), nhanes_design, na.rm = TRUE)
+    
+    return(data.frame(
+      Variable = v,
+      Count = count,
+      Mean_or_Percent = round(coef(stat)[[1]], 2),
+      SE = round(SE(stat)[[1]], 2),
+      Type = "Continuous"
+    ))
+  }
 }) %>% bind_rows()
 
-# === Rename variables once ===
-cat_results$Variable <- map_variable_labels_once(cat_results$Variable)
-binary_results$Variable <- map_variable_labels_once(binary_results$Variable)
-cont_results$Variable <- map_variable_labels_once(cont_results$Variable)
 
-#### Category label mapping------
+cont_results$Mean_or_Percent[cont_results$Variable == "Physical activity, median (SE)"] <-
+  cont_results$Mean_or_Percent.quantile[cont_results$Variable == "Physical activity, median (SE)"]
+
+cont_results$SE[cont_results$Variable == "Physical activity, median (SE)"] <-
+  cont_results$Mean_or_Percent.se[cont_results$Variable == "Physical activity, median (SE)"]
+
+
+
+# 2.9. Category labels ------
 category_labels <- list(
-  sex = c("1" = "Male", "2" = "Female"),
+  Sex = c("1" = "Male", "2" = "Female"),
   Race = c("1" = "Non-Hispanic White", "2" = "Non-Hispanic Black", "3" = "Hispanic", "4" = "Other"),
-  edu = c("1" = "Less than high school", "2" = "High school or equivalent", "3" = "Some college", "4" = "College or above"),
-  `Family income to poverty ratio` = c("1" = "< 1.3", "2" = "1.3~2.99", "3" = ">=3"),
-  SNAP = c("1" = "Not participant", "2" = "Participant", "3" = "income eligible non-participant"),
-  smk = c("1" = "Nonsmokers", "2" = "Former smokers", "3" = "<15 cigarettes/day", "4" = "15-24.9 cigarettes/day", "5" = "≥ 25 cigarettes/day"),
-  Drinking = c("1" = "Nondrinkers", "2" = "Moderate drinker", "3" = "Heavy drinker", "4" = "Missing"),
+  Education = c("1" = "Less than high school", "2" = "High school or equivalent", "3" = "Some college", "4" = "College or above"),
+  `Family income to poverty ratio` = c("1" = "< 1.3", "2" = "1.3~2.99", "3" = ">=3", "5" = "Missing"),
+  `Food Insecurity` = c( "0" = "Insecure", "1" = "Secure"), 
+  SNAP = c("0" = "Not participant", "1" = "Participant", "2" = "income eligible non-participant"),
+  `Smoking status` = c("1" = "Nonsmokers", "2" = "Former smokers", "3" = "<15 cigarettes/day", "4" = "15-24.9 cigarettes/day", "5" = "≥ 25 cigarettes/day"),
+  `Drinking status` = c("1" = "Nondrinkers", "2" = "Moderate drinker", "3" = "Heavy drinker", "4" = "Missing"),
   BMI = c("0" = "<18.5 kg/m2", "1" = "18-24.9 kg/m2", "2" = "25-29.9 kg/m2", "3" = "≥30 kg/m2")
 )
 
@@ -152,36 +193,28 @@ cat_results <- cat_results %>%
   ) %>%
   ungroup()
 
-# Continue with merge and formatting steps...
-
-
-
-
-# 3. Combine all ------------
+# 2.10. Combine all ------
 full_summary <- bind_rows(cat_results, binary_results, cont_results)
 
-# Reorder BMI categories
+##### Formatting----------
 bmi_levels_ordered <- c("<18.5 kg/m2", "18-24.9 kg/m2", "25-29.9 kg/m2", "≥30 kg/m2")
-full_summary <- full_summary %>%
-  mutate(
-    Category = if_else(Variable == "BMI", as.character(factor(Category, levels = bmi_levels_ordered)), Category)
-  )
-
-# Unified display
-mean_sd_vars <- c("Age, years", "Physical activity", "HbA1c", 
+mean_sd_vars <- c("Age, years", "Physical activity, median (SE)", "HbA1c", 
                   "Systolic Blood Pressure", "Diastolic Blood Pressure",
                   "High-Density Lipoprotein", "Low-Density Lipoprotein",
                   "Triglycerides", "HEI2015")
 
 full_summary <- full_summary %>%
-  mutate(`Primary population` = ifelse(Variable %in% mean_sd_vars,
-                                       paste0(Mean_or_Percent, " (", SE, ")"),
-                                       paste0(Count, " (", Mean_or_Percent, "%)")))
+  mutate(
+    Category = if_else(Variable == "BMI", as.character(factor(Category, levels = bmi_levels_ordered)), Category),
+    `Primary population` = ifelse(Variable %in% mean_sd_vars,
+                                  paste0(Mean_or_Percent, " (", SE, ")"),
+                                  paste0(Count, " (", Mean_or_Percent, "%)"))
+  )
 
-# Add groups
+##### Add groupings ------
 groupings <- list(
-  "Sociodemographics" = c("sex", "Race", "edu", "Family income to poverty ratio", "SNAP"),
-  "Health Behaviors" = c("smk", "Drinking", "Physical activity"),
+  "Sociodemographics" = c("Sex", "Race", "Education", "Family income to poverty ratio", "SNAP", "Food Insecurity"),
+  "Health Behaviors" = c("Smoking status", "Drinking status", "Physical activity, median (SE)"),
   "Clinical Characteristics" = c("BMI", "HbA1c", "Diabetes", "DiabetesRx", "CVD", "Angina", "Cancer", "Cholestory", "Lung-disease", "Depression", "Death"),
   "Dietary & Physiologic Measures" = c("Age, years", "Systolic Blood Pressure", "Diastolic Blood Pressure", 
                                        "High-Density Lipoprotein", "Low-Density Lipoprotein", "Triglycerides", "HEI2015")
@@ -189,46 +222,26 @@ groupings <- list(
 
 group_df <- enframe(groupings, name = "Group", value = "Variable") %>% unnest(cols = c(Variable))
 
-full_summary <- full_summary %>% left_join(group_df, by = "Variable") %>%
+full_summary <- full_summary %>%
+  mutate(Variable = as.character(Variable)) %>%  # force as character, so those variable lose previous order
+  left_join(group_df, by = "Variable") %>%
   mutate(
     Group = factor(Group, levels = names(groupings)),
     Variable = factor(Variable, levels = unlist(groupings))
   ) %>%
-  arrange(Group, Variable, factor(Category, levels = bmi_levels_ordered))
-
-# Clean final display
-full_summary <- full_summary %>%
+  arrange(Group, Variable) %>%  # force sorting
   mutate(
-    Category = ifelse(Variable %in% c(mean_sd_vars, map_variable_labels_once(binary_vars)), "", Category),
+    Category = ifelse(as.character(Variable) %in% c(mean_sd_vars, binary_vars), "", Category),
     Variable = ifelse(duplicated(Variable), "", as.character(Variable)),
     Group = ifelse(duplicated(Group), "", as.character(Group))
   ) %>%
   select(Group, Variable, Category, `Primary population`)
 
-# Export
+
+# 2.11. Export and Display-------
 write_csv(full_summary, "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_summary_table.csv")
 
-# Display
 demo_flex <- flextable(full_summary)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 # Optional: Auto fit columns
 # demo_flex <- autofit(demo_flex)
@@ -242,7 +255,7 @@ doc <- read_docx() %>%
 print(doc, target = "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_summary_table.docx")
 
 
-
+# end
 
 
 
