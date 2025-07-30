@@ -206,7 +206,7 @@ mean_sd_vars <- c("Age, years", "Physical activity, median (SE)", "HbA1c",
 full_summary <- full_summary %>%
   mutate(
     Category = if_else(Variable == "BMI", as.character(factor(Category, levels = bmi_levels_ordered)), Category),
-    `Primary population` = ifelse(Variable %in% mean_sd_vars,
+    `Primary population, N (%) or Mean (SE)` = ifelse(Variable %in% mean_sd_vars,
                                   paste0(Mean_or_Percent, " (", SE, ")"),
                                   paste0(Count, " (", Mean_or_Percent, "%)"))
   )
@@ -235,7 +235,7 @@ full_summary <- full_summary %>%
     Variable = ifelse(duplicated(Variable), "", as.character(Variable)),
     Group = ifelse(duplicated(Group), "", as.character(Group))
   ) %>%
-  select(Group, Variable, Category, `Primary population`)
+  select(Group, Variable, Category, `Primary population, N (%) or Mean (SE)`)
 
 
 # 2.11. Export and Display-------
