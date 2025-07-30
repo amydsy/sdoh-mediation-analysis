@@ -136,7 +136,7 @@ ahei <- dr1iff_fped
 # Total energy intake in kcal
 ahei$kcal <- ahei$kcal  # already available
 
-# 2.1. AHEI Component Calculations  -------
+#  🔥 🔥 🔥 🔥 🔥 🔥2.1. AHEI Component Calculations  -------
 
 ahei <- dr1iff_fped %>%
   mutate(
@@ -209,6 +209,15 @@ ahei$non_missing_components <- rowSums(!is.na(ahei[, ahei_cols]))
 
 # Show summary
 summary(ahei$non_missing_components)
+
+
+
+
+
+
+
+
+
 
 
 
