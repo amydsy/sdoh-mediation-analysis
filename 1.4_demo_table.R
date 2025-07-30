@@ -26,31 +26,72 @@ lapply(want, function(pkg) require(pkg, character.only = TRUE))
 rm(want, need)
 
 
-# 2 Generate Demographic Summary Table Using Survey Design-------
+# 2 Generate Demographic Summary Table Using Survey Design---------------------
 
 # 2.1. Load NHANES dataset -----
 df <- fread(file.path(dir$data, "SODH_diet_mort_depr.csv"))
 df <- df %>% filter(!is.na(wt10) & !is.na(sdmvstra) & !is.na(sdmvpsu))
 
-# Load AHEI combined data
+# 2.11 Load AHEI combined data------
 ahei_combined <- fread(file.path(dir$data, "ahei_combined.csv"))
 
 # Merge with main NHANES dataset
 df <- df %>%
   left_join(ahei_combined %>% select(SEQN, ahei_total), by = "SEQN")
 
+# 2.12 Load HUQ-derived healthcare access data -----
+huq_combined <- fread(file.path(dir$data, "huq_combined.csv"))
 
-# 2.2. Reassign BMI category -------
-# revised the coding when merging/data cleaning so no need this step 
+# Merge with main NHANES dataset
+df <- df %>%
+  left_join(huq_combined %>% select(SEQN, sdoh_access), by = "SEQN")
 
-# df$bmic <- with(df, ifelse(bmi > 0 & bmi < 18.5, 0,
-#                           ifelse(bmi >= 18.5 & bmi < 25, 1,
-#                                  ifelse(bmi >= 25 & bmi < 30, 2,
-#                                         ifelse(bmi >= 30, 3, 4)))))
+# 2.2 SDOH score ------
+df <- df %>%
+  mutate(
+    # Employment: 1 = unemployed
+    sdoh_employ = unemployment2,
+    
+    # Income: 1 = PIR < 3
+    sdoh_income = ifelse(pir < 3, 1, 0),
+    
+    # SNAP participation: 1 = yes
+    sdoh_snap = ifelse(SNAP == 1, 1, 0),
+    
+    # Education: 1 = less than high school
+    sdoh_edu = ifelse(EDU == 1, 1, 0),
+    
+    # Healthcare access: 1 = no usual place or ER-only (already merged)
+    sdoh_access = sdoh_access,
+    
+    # Insurance type: 1 = public or no insurance
+    sdoh_ins = case_when(
+      ins == 0 ~ 0,  # private insurance
+      ins %in% c(1, 2, 3, 5) ~ 1,  # public or uninsured
+      TRUE ~ NA_real_
+    ),
+    
+    # Housing: 1 = rent or other (unfavorable)
+    sdoh_home = ifelse(HOQ065 == 1, 1, 0),
+    
+    # Marital status: 1 = not married (widowed, divorced, never married)
+    sdoh_married = case_when(
+      marriage == 1 ~ 0,
+      marriage %in% c(2, 3, 4) ~ 1,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  # Total SDOH score (0–8)
+  mutate(
+    sdoh_score = sdoh_employ + sdoh_income + sdoh_snap +
+      sdoh_edu + sdoh_access + sdoh_ins +
+      sdoh_home + sdoh_married
+  )
 
-table(df$pir)
-table(df$SNAP)
-table(df$bmic)
+summary(df$sdoh_score)
+
+# Save the merged dataset for future use
+fwrite(df, file.path(dir$data, "SODH_diet_mort2.csv"))
 
 # 2.3. Define labeled variable names ------
 variable_labels <- c(
@@ -61,7 +102,7 @@ variable_labels <- c(
   RIDAGEYR = "Age, years", met_hr = "Physical activity, median (SE)", hba1c = "HbA1c",
   sbp = "Systolic Blood Pressure", dbp = "Diastolic Blood Pressure",
   hdl = "High-Density Lipoprotein", ldl = "Low-Density Lipoprotein", tg = "Triglycerides",
-   probable_depression = "Depression", ahei_total = "AHEI" #HEI2015_TOTAL_SCORE = "HEI2015",
+   probable_depression = "Depression", ahei_total = "AHEI", sdoh_score = "SDOH Score" #HEI2015_TOTAL_SCORE = "HEI2015",
 )
 
 map_variable_labels_once <- function(var_vector) {
@@ -124,7 +165,7 @@ binary_results <- lapply(binary_vars, function(v) {
 # 2.8. Continuous variables ------
 cont_vars <- c("Age, years", "Physical activity, median (SE)", "HbA1c", "Systolic Blood Pressure", 
                "Diastolic Blood Pressure", "High-Density Lipoprotein", 
-               "Low-Density Lipoprotein", "Triglycerides", "AHEI") # "HEI2015", 
+               "Low-Density Lipoprotein", "Triglycerides", "AHEI", "SDOH Score") # "HEI2015", 
 
 #cont_results <- lapply(cont_vars, function(v) {
 #  count <- sum(!is.na(df_labeled[[v]]))
@@ -209,7 +250,7 @@ bmi_levels_ordered <- c("<18.5 kg/m2", "18-24.9 kg/m2", "25-29.9 kg/m2", "≥30 
 mean_sd_vars <- c("Age, years", "Physical activity, median (SE)", "HbA1c", 
                   "Systolic Blood Pressure", "Diastolic Blood Pressure",
                   "High-Density Lipoprotein", "Low-Density Lipoprotein",
-                  "Triglycerides", "AHEI")
+                  "Triglycerides", "AHEI", "SDOH Score")
 
 full_summary <- full_summary %>%
   mutate(
@@ -221,7 +262,7 @@ full_summary <- full_summary %>%
 
 ##### Add groupings ------
 groupings <- list(
-  "Sociodemographics" = c("Sex", "Race", "Education", "Family income to poverty ratio", "SNAP", "Food Insecurity"),
+  "Sociodemographics" = c("Sex", "Race", "Education", "Family income to poverty ratio", "SNAP", "Food Insecurity","SDOH Score"),
   "Health Behaviors" = c("Smoking status", "Drinking status", "Physical activity, median (SE)"),
   "Clinical Characteristics" = c("BMI", "HbA1c", "Diabetes", "DiabetesRx", "CVD", "Angina", "Cancer", "Cholestory", "Lung-disease", "Depression", "Death"),
   "Dietary & Physiologic Measures" = c("Age, years", "Systolic Blood Pressure", "Diastolic Blood Pressure", 
