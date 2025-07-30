@@ -12,7 +12,7 @@ dir$code    <- file.path(dir$root, "code")
 
 # 1 Load Required Packages------
 # List of required packages
-want <- c("dplyr", "haven", "foreign", "survey", "purrr")
+want <- c("dplyr", "haven", "foreign", "survey", "purrr", "ggplot2")
 
 # Install any missing packages
 need <- want[!(want %in% installed.packages()[,"Package"])]
@@ -107,6 +107,22 @@ dr1iff_fped <- dr1iff_all %>%
 dr1iff_all$DR1IFDCD
 glimpse(dr1iff_all$cycle)
 
+# 🔍 Check missing values in FPED variables
+missing_summary <- dr1iff_fped %>%
+  summarise(
+    pct_missing_f_juice = mean(is.na(F_JUICE)) * 100,
+    pct_missing_a_drinks = mean(is.na(A_DRINKS)) * 100
+  )
+
+print(missing_summary)
+
+# Show unmatched food codes
+unmatched_codes <- dr1iff_fped %>%
+  filter(is.na(F_JUICE) | is.na(A_DRINKS)) %>%
+  distinct(DR1IFDCD, cycle)
+
+print(unmatched_codes)
+
 # 1.5 OR use existing FPED file hei9918 ------
 
 # hei_9918 <- haven::read_sas(file.path(dir$data, "hei9918.sas7bdat"))
@@ -119,98 +135,201 @@ glimpse(dr1iff_all$cycle)
 # Missing components: red/processed meat, EPA+DHA, PUFA (% energy), alcohol — need to pull from other files.
 
 # 2. calculate AHEI ------
+# --- AHEI Scoring: Adults Only (Age ≥ 20) --- #
 
-glimpse(dr1iff_fped)
+# Load demographics and filter to adults
+demo_adult <- fread(file.path(dir$data, "SODH_diet_mort_depr.csv")) %>%
+  select(SEQN, RIDAGEYR) %>%
+  filter(RIDAGEYR >= 20)
 
-# Check dimensions and sample
-dim(dr1iff_fped)
-glimpse(dr1iff_fped)
+# Identify SEQNs with missing food components for exclusion (e.g., SSB/juice)
+excluded_seqn <- dr1iff_fped %>%
+  filter(is.na(F_JUICE) | is.na(A_DRINKS)) %>%
+  distinct(SEQN)
 
-# Check that FPED variables (e.g., g_whole1, add_sugars1) are included
-names(dr1iff_fped)
-
-
-# Start with a copy of your dataset
-ahei <- dr1iff_fped
-
-# Total energy intake in kcal
-ahei$kcal <- ahei$kcal  # already available
-
-#  🔥 🔥 🔥 🔥 🔥 🔥2.1. AHEI Component Calculations  -------
-
+# Prepare base dataset with valid adults only
 ahei <- dr1iff_fped %>%
-  mutate(
-    kcal = DR1IKCAL,  # Total energy intake
-    
-    # 1. Vegetables (excluding potatoes and juice)
-    ahei_veg = pmin((V_DRKGR + V_REDOR_OTHER + V_OTHER + V_LEGUMES) / (5 / 1000 * kcal), 1) * 10,
-    
-    # 2. Fruits (excluding juice)
-    ahei_fruit = pmin((F_CITMLB + F_OTHER) / (4 / 1000 * kcal), 1) * 10,
-    
-    # 3. Whole Grains (grams/day)
-    ahei_wholegrains = pmin(G_WHOLE, 75) / 75 * 10,
-    
-    # 4. SSB + Fruit Juice (reverse scored)
-    ahei_ssbjuice = pmax(0, pmin(1 - ((A_DRINKS + F_JUICE) / (1.5 / 1000 * kcal)), 1)) * 10,
-    
-    # 5. Nuts and Legumes
-    ahei_nutslegumes = pmin((PF_NUTSDS + PF_LEGUMES) / (1 / 1000 * kcal), 1) * 10,
-    
-    # 6. Red and Processed Meat (reverse scored)
-    ahei_redmeat = pmax(0, pmin(1 - ((PF_MEAT + PF_CUREDMEAT) / (1.5 / 1000 * kcal)), 1)) * 10,
-    
-    # 7. Trans fat — not available in NHANES, skip or set to NA
-    ahei_transfat = NA_real_,
-    
-    # 8. Long-chain omega-3 fats (EPA + DHA)
-    epa_dha = DR1IP205 + DR1IP225 + DR1IP226,
-    ahei_omega3 = pmin(epa_dha, 250) / 250 * 10,
-    
-    # 9. PUFA (% of total energy)
-    pufa = DR1IP182 + DR1IP183,
-    ahei_pufa = pmin(pmax((pufa / kcal * 100 - 2) / (10 - 2), 0), 1) * 10,
-    
-    # 10. Sodium (reverse scored by decile)
-    ahei_sodium = 10 - ntile(DR1ISODI, 10),
-    
-    # 11. Alcohol (gender-specific scoring)
-    alcohol = DR1IALCO,
-    ahei_alcohol = ifelse(
-      MODCODE == 1,  # Male
-      ifelse(alcohol >= 0.5 & alcohol <= 2.0, 10,
-             ifelse(alcohol < 0.5, alcohol / 0.5 * 2.5,
-                    pmax(0, 2.5 - (alcohol - 2) / 1.5 * 2.5))),
-      ifelse(alcohol >= 0.5 & alcohol <= 1.5, 10,
-             ifelse(alcohol < 0.5, alcohol / 0.5 * 2.5,
-                    pmax(0, 2.5 - (alcohol - 1.5) / 1.0 * 2.5)))
-    )
+  semi_join(demo_adult, by = "SEQN") %>%            # restrict to adults
+  filter(!SEQN %in% excluded_seqn$SEQN)             # exclude unmatched foods
+
+# 2.1 VEGETABLES ---------------------------------------------------------
+ahei_veg <- ahei %>%
+  group_by(SEQN) %>%
+  summarise(
+    kcal_total = sum(DR1IKCAL, na.rm = TRUE),
+    veg_total_cup = sum(V_DRKGR + V_REDOR_TOMATO + V_REDOR_OTHER + V_OTHER + V_LEGUMES + PF_LEGUMES, na.rm = TRUE),
+    .groups = "drop"
   ) %>%
   mutate(
-    # Final AHEI score (excluding transfat)
-    ahei_total = rowSums(select(., starts_with("ahei_"))[ , -which(names(select(., starts_with("ahei_"))) == "ahei_transfat")], na.rm = TRUE)
+    veg_per_1000kcal = veg_total_cup / (kcal_total / 1000),
+    veg_per_1000kcal = ifelse(veg_per_1000kcal > 10, NA, veg_per_1000kcal),
+    ahei_veg = pmin(veg_per_1000kcal / 5, 1) * 10
   )
 
-ahei %>% summarise(
-  mean = mean(ahei_total, na.rm = TRUE),
-  sd = sd(ahei_total, na.rm = TRUE)
-)
+# 2.2 WHOLE FRUIT --------------------------------------------------------
+ahei_fruit <- ahei %>%
+  group_by(SEQN) %>%
+  summarise(
+    kcal_total = sum(DR1IKCAL, na.rm = TRUE),
+    fruit_total_cup = sum(F_TOTAL - F_JUICE, na.rm = TRUE),  # Exclude juice
+    .groups = "drop"
+  ) %>%
+  mutate(
+    fruit_per_1000kcal = fruit_total_cup / (kcal_total / 1000),
+    fruit_per_1000kcal = ifelse(fruit_per_1000kcal > 10, NA, fruit_per_1000kcal),
+    ahei_fruit = pmin(fruit_per_1000kcal / 2, 1) * 10
+  )
 
-summary(ahei$ahei_total)
+# 2.3 WHOLE GRAINS -------------------------------------------------------
+ahei_grain <- ahei %>%
+  group_by(SEQN) %>%
+  summarise(
+    kcal_total = sum(DR1IKCAL, na.rm = TRUE),
+    wholegrains_oz_eq = sum(G_WHOLE, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    wholegrains_g = wholegrains_oz_eq * 28.35,  # Convert oz-eq to grams
+    wholegrains_g = ifelse(wholegrains_g > 150, NA, wholegrains_g),  # Optional trim
+    ahei_wholegrains = pmin(wholegrains_g / 75, 1) * 10
+  )
 
-table(cut(ahei$ahei_total, breaks = c(0, 20, 40, 60, 80, 100, 120)))
+# 2.4 SSBs + FRUIT JUICE -------------------------------------------------
+ahei_ssb <- ahei %>%
+  group_by(SEQN) %>%
+  summarise(
+    ssb_servings = sum(A_DRINKS, na.rm = TRUE),
+    fruit_juice_cups = sum(F_JUICE, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    ssb_fj_servings = ssb_servings + fruit_juice_cups,
+    ahei_ssb = case_when(
+      ssb_fj_servings >= 1 ~ 0,
+      ssb_fj_servings < 1  ~ (1 - ssb_fj_servings) * 10
+    )
+  )
 
 
-# Get column names that start with 'ahei_' but exclude 'ahei_total'
-ahei_cols <- setdiff(grep("^ahei_", names(ahei), value = TRUE), "ahei_total")
+# 2.5 NUTS & LEGUMES ---------------------------------------------------
+ahei_nutslegumes <- ahei %>%
+  group_by(SEQN) %>%
+  summarise(
+    nuts_legumes_oz = sum(PF_NUTSDS + PF_LEGUMES, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    ahei_nutslegumes = pmin(nuts_legumes_oz / 1, 1) * 10
+  )
 
-# Count how many components are non-missing for each row
-ahei$non_missing_components <- rowSums(!is.na(ahei[, ahei_cols]))
 
-# Show summary
-summary(ahei$non_missing_components)
+# 2.6 Red and processed meat ---------------------------------------------------
+
+ahei_meat <- ahei %>%
+  group_by(SEQN) %>%
+  summarise(
+    red_proc_oz = sum(PF_MEAT + PF_CUREDMEAT, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    ahei_redprocmeat = pmin(red_proc_oz / 1.5, 1),
+    ahei_redprocmeat = (1 - ahei_redprocmeat) * 10
+  )
+
+# 2.7 Trans fat (usually omitted or proxied) -----------------------------------
+
+# 2.8 LONG-CHAIN OMEGA-3 (EPA+DHA) ---------------------------------------------
+
+ahei_longn3 <- ahei %>%
+  group_by(SEQN) %>%
+  summarise(
+    long_chain_n3 = sum(DR1IP204 + DR1IP225 + DR1IP205, na.rm = TRUE),  # grams/day
+    .groups = "drop"
+  ) %>%
+  mutate(
+    long_chain_n3 = ifelse(long_chain_n3 > 5, NA, long_chain_n3),  # trim extreme
+    ahei_longn3 = pmin(long_chain_n3 / 0.25, 1) * 10
+  )
+
+# --- 2.9 PUFAs (as % of energy) ---
+ahei_pufa <- ahei %>%
+  group_by(SEQN) %>%
+  summarise(
+    kcal_total = sum(DR1IKCAL, na.rm = TRUE),
+    pufa_g = sum(DR1IPFAT, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    pufa_energy_pct = (pufa_g * 9) / kcal_total * 100,
+    ahei_pufa = case_when(
+      pufa_energy_pct >= 10 ~ 10,
+      pufa_energy_pct <= 2 ~ 0,
+      TRUE ~ (pufa_energy_pct - 2) / (10 - 2) * 10
+    )
+  )
+
+# --- 2.10 SODIUM (reverse scored) ---
+ahei_sodium <- ahei %>%
+  group_by(SEQN) %>%
+  summarise(
+    sodium_mg = sum(DR1ISODI, na.rm = TRUE),
+    kcal_total = sum(DR1IKCAL, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    sodium_per_1000kcal = sodium_mg / (kcal_total / 1000),
+    ahei_sodium = case_when(
+      sodium_per_1000kcal <= 1000 ~ 10,
+      sodium_per_1000kcal >= 2300 ~ 0,
+      TRUE ~ (2300 - sodium_per_1000kcal) / (2300 - 1000) * 10
+    )
+  )
+
+# --- 2.11 ALCOHOL ---
+ahei_alcohol <- ahei %>%
+  group_by(SEQN) %>%
+  summarise(
+    alcohol_g = sum(DR1IALCO, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    ahei_alcohol = case_when(
+      alcohol_g == 0 ~ 2.5,
+      alcohol_g > 0 & alcohol_g <= 13 ~ 10,
+      alcohol_g > 13 & alcohol_g <= 26 ~ (26 - alcohol_g) / (26 - 13) * 10,
+      alcohol_g > 26 ~ 0,
+      TRUE ~ NA_real_
+    )
+  )
 
 
+
+# 2.12 COMBINE ALL COMPONENTS --------------------------------------------
+ahei_combined <- list(
+  ahei_veg, ahei_fruit, ahei_grain, ahei_ssb, ahei_nutslegumes,
+  ahei_meat, ahei_longn3, ahei_pufa, ahei_sodium, ahei_alcohol
+) %>%
+  reduce(full_join, by = "SEQN") %>%
+  mutate(
+    ahei_total = rowSums(select(., starts_with("ahei_")), na.rm = TRUE)
+  )
+
+# OPTIONAL: Summary
+summary(ahei_combined$ahei_total)
+summary(ahei_combined$ahei_pufa)
+
+# Save AHEI combined scores to data folder
+fwrite(ahei_combined, file = file.path(dir$data, "ahei_combined.csv"))
+
+# Histogram of AHEI total score
+ggplot(ahei_combined, aes(x = ahei_total)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "black", alpha = 0.8) +
+  labs(
+    title = "Distribution of AHEI Total Scores",
+    x = "AHEI Total Score",
+    y = "Count"
+  ) +
+  theme_minimal()
 
 
 

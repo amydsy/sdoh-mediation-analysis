@@ -32,6 +32,14 @@ rm(want, need)
 df <- fread(file.path(dir$data, "SODH_diet_mort_depr.csv"))
 df <- df %>% filter(!is.na(wt10) & !is.na(sdmvstra) & !is.na(sdmvpsu))
 
+# Load AHEI combined data
+ahei_combined <- fread(file.path(dir$data, "ahei_combined.csv"))
+
+# Merge with main NHANES dataset
+df <- df %>%
+  left_join(ahei_combined %>% select(SEQN, ahei_total), by = "SEQN")
+
+
 # 2.2. Reassign BMI category -------
 # revised the coding when merging/data cleaning so no need this step 
 
@@ -53,7 +61,7 @@ variable_labels <- c(
   RIDAGEYR = "Age, years", met_hr = "Physical activity, median (SE)", hba1c = "HbA1c",
   sbp = "Systolic Blood Pressure", dbp = "Diastolic Blood Pressure",
   hdl = "High-Density Lipoprotein", ldl = "Low-Density Lipoprotein", tg = "Triglycerides",
-  HEI2015_TOTAL_SCORE = "HEI2015", probable_depression = "Depression"
+   probable_depression = "Depression", ahei_total = "AHEI" #HEI2015_TOTAL_SCORE = "HEI2015",
 )
 
 map_variable_labels_once <- function(var_vector) {
@@ -116,7 +124,7 @@ binary_results <- lapply(binary_vars, function(v) {
 # 2.8. Continuous variables ------
 cont_vars <- c("Age, years", "Physical activity, median (SE)", "HbA1c", "Systolic Blood Pressure", 
                "Diastolic Blood Pressure", "High-Density Lipoprotein", 
-               "Low-Density Lipoprotein", "Triglycerides", "HEI2015")
+               "Low-Density Lipoprotein", "Triglycerides", "AHEI") # "HEI2015", 
 
 #cont_results <- lapply(cont_vars, function(v) {
 #  count <- sum(!is.na(df_labeled[[v]]))
@@ -201,7 +209,7 @@ bmi_levels_ordered <- c("<18.5 kg/m2", "18-24.9 kg/m2", "25-29.9 kg/m2", "≥30 
 mean_sd_vars <- c("Age, years", "Physical activity, median (SE)", "HbA1c", 
                   "Systolic Blood Pressure", "Diastolic Blood Pressure",
                   "High-Density Lipoprotein", "Low-Density Lipoprotein",
-                  "Triglycerides", "HEI2015")
+                  "Triglycerides", "AHEI")
 
 full_summary <- full_summary %>%
   mutate(
@@ -217,7 +225,7 @@ groupings <- list(
   "Health Behaviors" = c("Smoking status", "Drinking status", "Physical activity, median (SE)"),
   "Clinical Characteristics" = c("BMI", "HbA1c", "Diabetes", "DiabetesRx", "CVD", "Angina", "Cancer", "Cholestory", "Lung-disease", "Depression", "Death"),
   "Dietary & Physiologic Measures" = c("Age, years", "Systolic Blood Pressure", "Diastolic Blood Pressure", 
-                                       "High-Density Lipoprotein", "Low-Density Lipoprotein", "Triglycerides", "HEI2015")
+                                       "High-Density Lipoprotein", "Low-Density Lipoprotein", "Triglycerides", "AHEI")
 )
 
 group_df <- enframe(groupings, name = "Group", value = "Variable") %>% unnest(cols = c(Variable))
