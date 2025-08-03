@@ -35,7 +35,7 @@ lapply(want, function(pkg) require(pkg, character.only = TRUE))
 rm(want, need)
 
 # 1.0 Load merged dataset -----
-df <- fread(file.path(dir$data, "SODH_diet_mort2.csv"))
+df <- fread(file.path(dir$data, "SODH_diet_mort3.csv"))
 
 # Check SDOH score and mortality variables
 names(df)
@@ -77,26 +77,41 @@ covariates_clinical <- c(
   "cancer"          # Cancer history
 )
 
+# add behavior cov
+cov_base_behavior <- c(covariates_base, covariates_behavior)
+
 # Combine for full adjustment
 covariates_full <- c(covariates_base, covariates_behavior, covariates_clinical)
 
 
 # 2. Fit Survey-Weighted Cox Model -----
 
-# 2.1 Total effect of SDOH score on mortality ----
-cox_total <- svycoxph(
-  as.formula(paste("Surv(py, MORTSTAT) ~ sdoh_score +", paste(covariates_base, collapse = " + "))),
+# 2.1 Base model: SDOH score + demographic covariates ------
+cox_sdoh_base <- svycoxph(
+  as.formula(paste("Surv(py, MORTSTAT) ~ sdoh_score +", 
+                   paste(covariates_base, collapse = " + "))),
   design = nhanes_design
 )
+summary(cox_sdoh_base)
 
-summary(cox_total)
+# 2.2 Extended model: SDOH score + demographic + lifestyle covariates-------
+# Combine covariates for clarity
+cov_base_behavior <- c(covariates_base, covariates_behavior)
 
+cox_sdoh_base_behavior <- svycoxph(
+  as.formula(paste("Surv(py, MORTSTAT) ~ sdoh_score +", 
+                   paste(cov_base_behavior, collapse = " + "))),
+  design = nhanes_design
+)
+summary(cox_sdoh_base_behavior)
 
-
-
-
-
-
+# 2.3 Fully adjusted model: SDOH score + demographic + lifestyle + clinical covariates ----
+cox_sdoh_full <- svycoxph(
+  as.formula(paste("Surv(py, MORTSTAT) ~ sdoh_score +", 
+                   paste(covariates_full, collapse = " + "))),
+  design = nhanes_design
+)
+summary(cox_sdoh_full)
 
 
 
