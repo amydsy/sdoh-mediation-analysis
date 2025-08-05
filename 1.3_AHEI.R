@@ -53,8 +53,7 @@ dr1iff_all <- bind_rows(dr1iff_list)
 nrow(dr1tot_all)    # Should be ~77,000 (1 row per person)
 nrow(dr1iff_all)    # Much larger (multiple rows per person)
 
-# Merge on SEQN and cycle
-diet_merged <- inner_join(dr1tot_all, dr1iff_all, by = c("SEQN", "cycle"))
+
 
 # 1.3 Load FPED files (only 2005–2018 cycles) ------
 
@@ -77,6 +76,8 @@ read_fped <- function(cycle, path) {
 # Read and bind all FPED files
 fped_all <- map2_dfr(names(fped_files), fped_files, read_fped)
 
+fped_all$cycle
+
 fped_all$FOODCODE
 glimpse(fped_all$cycle)
 
@@ -87,18 +88,19 @@ fped_cycles <- names(fped_files)
 
 # Create a named vector to map letter codes to year labels
 cycle_map <- c(
-  "C" = "2005-2006",
-  "D" = "2007-2008",
-  "E" = "2009-2010",
-  "F" = "2011-2012",
-  "G" = "2013-2014",
-  "H" = "2015-2016",
-  "I" = "2017-2018"
+  "D" = "2005-2006",
+  "E" = "2007-2008",
+  "F" = "2009-2010",
+  "G" = "2011-2012",
+  "H" = "2013-2014",
+  "I" = "2015-2016",
+  "J" = "2017-2018"
 )
 
 # Apply mapping to dr1iff_all
 dr1iff_all <- dr1iff_all %>%
   mutate(cycle = cycle_map[cycle])
+
 
 dr1iff_fped <- dr1iff_all %>%
   filter(cycle %in% fped_cycles) %>%
@@ -106,6 +108,20 @@ dr1iff_fped <- dr1iff_all %>%
 
 dr1iff_all$DR1IFDCD
 glimpse(dr1iff_all$cycle)
+
+summary(dr1iff_fped$SEQN)
+
+
+## gut check if cycle is correctly included ----
+
+dr1iff_fped %>% 
+  filter(SEQN == 93702) %>% 
+  select(SEQN, cycle)
+
+dr1iff_fped %>% 
+  filter(SEQN == 21009) %>% 
+  select(SEQN, cycle)
+
 
 # 🔍 Check missing values in FPED variables
 missing_summary <- dr1iff_fped %>%
@@ -122,6 +138,7 @@ unmatched_codes <- dr1iff_fped %>%
   distinct(DR1IFDCD, cycle)
 
 print(unmatched_codes)
+
 
 # 1.5 OR use existing FPED file hei9918 ------
 
@@ -142,15 +159,14 @@ demo_adult <- fread(file.path(dir$data, "SODH_diet_mort_depr.csv")) %>%
   select(SEQN, RIDAGEYR) %>%
   filter(RIDAGEYR >= 20)
 
-# Identify SEQNs with missing food components for exclusion (e.g., SSB/juice)
-excluded_seqn <- dr1iff_fped %>%
-  filter(is.na(F_JUICE) | is.na(A_DRINKS)) %>%
-  distinct(SEQN)
-
 # Prepare base dataset with valid adults only
 ahei <- dr1iff_fped %>%
-  semi_join(demo_adult, by = "SEQN") %>%            # restrict to adults
-  filter(!SEQN %in% excluded_seqn$SEQN)             # exclude unmatched foods
+  semi_join(demo_adult, by = "SEQN")  #%>%         # restrict to adults
+
+length(unique(ahei$SEQN))
+
+
+
 
 # 2.1 VEGETABLES ---------------------------------------------------------
 ahei_veg <- ahei %>%

@@ -25,28 +25,51 @@ if (length(need)) install.packages(need)
 lapply(want, function(pkg) require(pkg, character.only = TRUE))
 rm(want, need)
 
+# 2. Load and Merge Main Datasets ----------------------------------------------------------
 
-# 2 Generate Demographic Summary Table Using Survey Design---------------------
+# load from python result 
+# After ELIGSTAT & MORTSTAT inclusion: {1: 39632, 0: 117}
+# Dropped at Step 2 (diet data or recall quality): 4391
+# Dropped at Step 3 (missing FS/SNAP or pir=4): 596
+# Dropped at Step 4 (zero or negative WTDRD1): 0
+# 📊 Final include flag counts: {1: 34645, 2: 4391, 3: 596, 0: 117}
+# Final analytic sample size: 34645
 
-# 2.1. Load NHANES dataset -----
+# 2.1. Load NHANES dataset 
 df <- fread(file.path(dir$data, "SODH_diet_mort_depr.csv"))
-df <- df %>% filter(!is.na(wt10) & !is.na(sdmvstra) & !is.na(sdmvpsu))
 
-# 2.11 Load AHEI combined data------
+df <- df %>%
+  filter(SDDSRVYR != 3)  # after exclude 0304, 34645
+
+df <- df %>% filter(!is.na(wt10) & !is.na(sdmvstra) & !is.na(sdmvpsu)) # missing weight and strata 34228
+
+summary(df$RIDAGEYR)
+
+# 2.2. Merge AHEI scores
 ahei_combined <- fread(file.path(dir$data, "ahei_combined.csv"))
+summary(ahei_combined$SEQN)
 
 # Merge with main NHANES dataset
+df$ahei_total <- NULL
 df <- df %>%
   left_join(ahei_combined %>% select(SEQN, ahei_total), by = "SEQN")
 
-# 2.12 Load HUQ-derived healthcare access data -----
+table(is.na(df$ahei_total))
+
+
+# 2.3. Merge healthcare access (HUQ)
 huq_combined <- fread(file.path(dir$data, "huq_combined.csv"))
 
 # Merge with main NHANES dataset
+df$sdoh_access <- NULL
 df <- df %>%
   left_join(huq_combined %>% select(SEQN, sdoh_access), by = "SEQN")
 
-# 2.2 SDOH score ------
+# 3. Construct SDOH Score ------------------------------------------------------
+df$SDDSRVYR
+
+df$sdoh_access
+
 df <- df %>%
   mutate(
     # Employment: 1 = unemployed
@@ -93,7 +116,42 @@ summary(df$sdoh_score)
 # Save the merged dataset for future use
 fwrite(df, file.path(dir$data, "SODH_diet_mort2.csv"))
 
-# 2.3. Define labeled variable names ------
+# 4. Define Hypertension Indicator ----------------------------------------------------------
+
+# 4.1. Load blood pressure questionnaire 
+bpq_data <- read_csv(file.path(dir$data, "bpq_combined.csv"))
+df <- df %>% left_join(bpq_data, by = "SEQN")
+
+# 4.2. Define hypertension indicator
+df <- df %>%
+  mutate(
+    HYPERTEN = case_when(
+      !is.na(BPQ020) & BPQ020 == 1 ~ 1,
+      !is.na(BPQ050A) & BPQ050A == 1 ~ 1,
+      !is.na(sbp) & sbp >= 130 ~ 1,
+      !is.na(dbp) & dbp >= 85 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+summary(df$HYPERTEN)
+
+# 4.3. Check hypertension prevalence (weighted)
+nhanes_design <- df %>%
+  filter(!is.na(sdmvpsu), !is.na(sdmvstra), !is.na(wt)) %>%
+  svydesign(ids = ~sdmvpsu, strata = ~sdmvstra, weights = ~wt, nest = TRUE, data = .)
+
+svymean(~HYPERTEN, nhanes_design, na.rm = TRUE)
+
+# Save final merged dataset
+write_csv(df, file.path(dir$data, "SODH_diet_mort3.csv"))
+
+# 5. Prepare Labeled Data for Summary Table -------------------------------------------------
+df <- read_csv(file.path(dir$data, "SODH_diet_mort3.csv"))
+# Exclude NHANES 2003–2004 cycle due to incompatible depression questionnaire format
+df <- df %>% filter(cycle != "0304")
+
+# 5.1. Define variable name mapping
 variable_labels <- c(
   SEX = "Sex", RACE = "Race", EDU = "Education", pir = "Family income to poverty ratio", FS = "Food Insecurity",
   SNAP3 = "SNAP", SMK = "Smoking status", ALCG2 = "Drinking status", bmic = "BMI",
@@ -109,14 +167,16 @@ map_variable_labels_once <- function(var_vector) {
   sapply(var_vector, function(v) if (v %in% names(variable_labels)) variable_labels[[v]] else v, USE.NAMES = FALSE)
 }
 
-# 2.4. Rename df columns just once ------
+# 5.2. Rename variables for table output
 df_labeled <- df
 names(df_labeled) <- map_variable_labels_once(names(df_labeled))
 
 ###### Create formula-safe function
 as_var_formula <- function(v) as.formula(paste0("~`", v, "`"))
 
-# 2.5. Survey design -----
+
+# 6. Create Summary Table with Survey Design -----------------------------------------------
+# 6.1. Survey design
 nhanes_design <- svydesign(
   id = ~sdmvpsu,
   strata = ~sdmvstra,
@@ -125,7 +185,7 @@ nhanes_design <- svydesign(
   nest = TRUE
 )
 
-# 2.6. Categorical variables ------
+# 6.2 Categorical variables -----
 cat_vars <- c("Sex", "Race", "Education", "Family income to poverty ratio", "SNAP", "Smoking status", "Drinking status", "BMI", "Food Insecurity")
 
 cat_results <- lapply(cat_vars, function(v) {
@@ -145,7 +205,7 @@ cat_results <- lapply(cat_vars, function(v) {
   )
 }) %>% bind_rows()
 
-# 2.7. Binary variables ------
+# 6.3 Binary variables ------
 binary_vars <- c("Diabetes", "CVD", "DiabetesRx", "Cholestory", "Angina", "Cancer", "Lung-disease", "Death", "Depression")
 
 binary_results <- lapply(binary_vars, function(v) {
@@ -162,7 +222,7 @@ binary_results <- lapply(binary_vars, function(v) {
   )
 }) %>% bind_rows()
 
-# 2.8. Continuous variables ------
+# 6.4 Continuous variables ------
 cont_vars <- c("Age, years", "Physical activity, median (SE)", "HbA1c", "Systolic Blood Pressure", 
                "Diastolic Blood Pressure", "High-Density Lipoprotein", 
                "Low-Density Lipoprotein", "Triglycerides", "AHEI", "SDOH Score") # "HEI2015", 
@@ -217,7 +277,7 @@ cont_results$SE[cont_results$Variable == "Physical activity, median (SE)"] <-
 
 
 
-# 2.9. Category labels ------
+# 6.5 Category labels ------
 category_labels <- list(
   Sex = c("1" = "Male", "2" = "Female"),
   Race = c("1" = "Non-Hispanic White", "2" = "Non-Hispanic Black", "3" = "Hispanic", "4" = "Other"),
@@ -242,7 +302,7 @@ cat_results <- cat_results %>%
   ) %>%
   ungroup()
 
-# 2.10. Combine all ------
+# 6.6 Combine all ------
 full_summary <- bind_rows(cat_results, binary_results, cont_results)
 
 ##### Formatting----------
@@ -287,7 +347,7 @@ full_summary <- full_summary %>%
   select(Group, Variable, Category, `Primary population, N (%) or Mean (SE)`)
 
 
-# 2.11. Export and Display-------
+# 6.7 Export and Display-------
 write_csv(full_summary, "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_summary_table.csv")
 
 demo_flex <- flextable(full_summary)

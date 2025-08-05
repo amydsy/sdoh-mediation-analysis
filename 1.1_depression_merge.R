@@ -30,7 +30,7 @@ phq_vars <- c(
 )
 
 # Define cycles and file suffixes
-cycles <- c("DPQ_E", "DPQ_F", "DPQ_G", "DPQ_H", "DPQ_I", "DPQ_J")  # 2005–2018
+cycles <- c("DPQ_D", "DPQ_E", "DPQ_F", "DPQ_G", "DPQ_H", "DPQ_I", "DPQ_J")  # 2005–2018
 years <- c("0506", "0708", "0910", "1112", "1314", "1516", "1718")
 
 # Function to load and clean PHQ-9 data from one file
@@ -49,6 +49,8 @@ read_phq_file <- function(filename, cycle) {
 phq_list <- Map(read_phq_file, cycles, years)
 phq_data <- bind_rows(phq_list)
 
+table(phq_data$cycle)
+
 # Assign score: valid values are 0–3. Set others (7=Refused, 9=Don't know) to NA
 phq_data <- phq_data %>%
   mutate(across(all_of(phq_vars), ~ ifelse(.x %in% 0:3, .x, NA_integer_)))
@@ -65,8 +67,10 @@ phq_data <- phq_data %>%
   ungroup()
 
 # View summary
+
 summary(phq_data$phq9_total)
 table(phq_data$probable_depression, useNA = "always")
+
 
 write_csv(phq_data, file.path(dir$data, "depression_combined.csv"))
 
@@ -76,6 +80,26 @@ write_csv(phq_data, file.path(dir$data, "depression_combined.csv"))
 phq_data <- read_csv(file.path(dir$data, "depression_combined.csv"))
 main_data <- read_csv(file.path(dir$data, "SODH_diet_mort2.csv"))
 
+main_data$probable_depression<-NULL
+#### investigate why 0506 droped  ------
+
+# Get SEQNs from each cycle
+seqn_0506 <- phq_data %>%
+  filter(cycle == "0506") %>%
+  pull(SEQN)
+
+seqn_1718 <- phq_data %>%
+  filter(cycle == "1718") %>%
+  pull(SEQN)
+
+# Check for overlap
+intersect_ids <- intersect(seqn_0506, seqn_1718)
+
+# View how many overlap
+# length(intersect_ids)  #### so 0506 and 1718 share the same SEQN , fixed!
+
+
+
 # 3.2 Filter to the most recent cycle before merging ------
 phq_data <- phq_data %>%
   mutate(cycle_num = as.numeric(cycle)) %>%
@@ -84,9 +108,21 @@ phq_data <- phq_data %>%
   slice(1) %>%
   ungroup()
 
+table(phq_data$cycle_num)
 # 3.3 Merge on SEQN (respondent ID) -----
 merged_data <- main_data %>%
   left_join(phq_data %>% select(SEQN, probable_depression), by = "SEQN")
+
+summary(merged_data$probable_depression)
+
+merged_data %>%
+  group_by(SDDSRVYR) %>%
+  summarise(
+    total = n(),
+    missing = sum(is.na(probable_depression)),
+    missing_pct = round(mean(is.na(probable_depression)) * 100, 1)
+  )
+
 
 write_csv(merged_data, file.path(dir$data, "SODH_diet_mort_depr.csv"))
 
@@ -105,7 +141,7 @@ nhanes_design <- merged_data %>%
 svymean(~probable_depression, nhanes_design, na.rm = TRUE)
 
 #                      mean    SE
-# probable_depression 0.083453 0.003
+# probable_depression 0.080137 0.0027
 
 # Note: The weighted prevalence of probable depression (PHQ-9 ≥ 10) is ~8.3%,
 # which aligns with national estimates (~7.6%–8.1%) from CDC (NCHS Data Briefs No. 172 & 303).
