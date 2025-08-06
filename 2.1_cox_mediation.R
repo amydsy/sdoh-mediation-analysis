@@ -1,12 +1,7 @@
 # Mediation Analysis
 
-# Fit Cox models first for the total effect of sdoh_score on MORTSTAT?
-
+# other analysis might explore later if have time
 # Move directly to mediation analysis (e.g. using mediation package or lavaan)?
-  
-#  Do both, starting with total effect?
-
-
 
 # 1 Setup: Packages and Directories-------
 
@@ -23,7 +18,7 @@ dir$code    <- file.path(dir$root, "code")
 
 # Load Required Packages------
 # List of required packages
-want <- c("dplyr", "survey", "foreign", "Hmisc", "data.table", "tidyr", 
+want <- c("dplyr", "survey", "foreign", "Hmisc", "data.table", "tidyr", "stringr",
           "tibble", "readr", "flextable", "officer", "usethis", "gert", "survival")
 
 # Install any missing packages
@@ -53,8 +48,6 @@ nhanes_design <- svydesign(
 )
 
 names(df)
-
-
 
 # 1.2 cov list ------
 # Covariates for Cox regression and mediation analysis
@@ -168,34 +161,33 @@ summary(FI_sdoh_diet_mt)
 # hypo 3. Food insecurity, diet quality separately mediate SDOH  → mortality.
 
 # ---- FUNCTION 1: Separate Mediation (FI and AHEI) ----
+
 run_separate_mediation <- function(covariate_list, design_obj) {
-  model_total <- svycoxph(
+  sdoh_mort <- svycoxph(
     as.formula(paste("Surv(py, MORTSTAT) ~ sdoh_score +", paste(covariate_list, collapse = " + "))),
     design = design_obj
   )
-  model_FI <- svycoxph(
+  sdoh_FI_mort <- svycoxph(
     as.formula(paste("Surv(py, MORTSTAT) ~ sdoh_score + FI +", paste(covariate_list, collapse = " + "))),
     design = design_obj
   )
-  model_AHEI <- svycoxph(
+  sdoh_AHEI_mort <- svycoxph(
     as.formula(paste("Surv(py, MORTSTAT) ~ sdoh_score + ahei_total +", paste(covariate_list, collapse = " + "))),
     design = design_obj
   )
-  # Extract
-  beta_total <- coef(model_total)["sdoh_score"]
-  se_total <- sqrt(vcov(model_total)["sdoh_score", "sdoh_score"])
   
-  beta_FI <- coef(model_FI)["sdoh_score"]
-  se_FI <- sqrt(vcov(model_FI)["sdoh_score", "sdoh_score"])
+  beta_total <- coef(sdoh_mort)["sdoh_score"]
+  se_total <- sqrt(vcov(sdoh_mort)["sdoh_score", "sdoh_score"])
   
-  beta_AHEI <- coef(model_AHEI)["sdoh_score"]
-  se_AHEI <- sqrt(vcov(model_AHEI)["sdoh_score", "sdoh_score"])
+  beta_FI <- coef(sdoh_FI_mort)["sdoh_score"]
+  se_FI <- sqrt(vcov(sdoh_FI_mort)["sdoh_score", "sdoh_score"])
   
-  # Proportion mediated
+  beta_AHEI <- coef(sdoh_AHEI_mort)["sdoh_score"]
+  se_AHEI <- sqrt(vcov(sdoh_AHEI_mort)["sdoh_score", "sdoh_score"])
+  
   prop_FI <- (beta_total - beta_FI) / beta_total
   prop_AHEI <- (beta_total - beta_AHEI) / beta_total
   
-  # Wald tests
   z_FI <- (beta_total - beta_FI) / sqrt(se_total^2 + se_FI^2)
   z_AHEI <- (beta_total - beta_AHEI) / sqrt(se_total^2 + se_AHEI^2)
   
@@ -204,6 +196,7 @@ run_separate_mediation <- function(covariate_list, design_obj) {
   
   return(list(
     beta_total = beta_total,
+    se_total = se_total,
     beta_FI = beta_FI,
     se_FI = se_FI,
     prop_FI = prop_FI,
@@ -221,28 +214,39 @@ run_separate_mediation <- function(covariate_list, design_obj) {
 
 # ---- FUNCTION 2: Joint Mediation (FI + AHEI) ----
 run_joint_mediation <- function(covariate_list, design_obj) {
-  model_total <- svycoxph(
+  # Step 1: Total effect model
+  sdoh_mort <- svycoxph(
     as.formula(paste("Surv(py, MORTSTAT) ~ sdoh_score +", paste(covariate_list, collapse = " + "))),
     design = design_obj
   )
-  model_joint <- svycoxph(
+  
+  # Step 2: Joint mediator model
+  sdoh_FI_AHEI_mort <- svycoxph(
     as.formula(paste("Surv(py, MORTSTAT) ~ sdoh_score + FI + ahei_total +", paste(covariate_list, collapse = " + "))),
     design = design_obj
   )
   
-  beta_total <- coef(model_total)["sdoh_score"]
-  beta_joint <- coef(model_joint)["sdoh_score"]
+  # Extract betas and SEs
+  beta_total <- coef(sdoh_mort)["sdoh_score"]
+  beta_joint <- coef(sdoh_FI_AHEI_mort)["sdoh_score"]
   
-  se_total <- sqrt(vcov(model_total)["sdoh_score", "sdoh_score"])
-  se_joint <- sqrt(vcov(model_joint)["sdoh_score", "sdoh_score"])
+  se_total <- sqrt(vcov(sdoh_mort)["sdoh_score", "sdoh_score"])
+  se_joint <- sqrt(vcov(sdoh_FI_AHEI_mort)["sdoh_score", "sdoh_score"])
   
+  # Compute mediated proportion and p-value
   prop_joint <- (beta_total - beta_joint) / beta_total
   z <- (beta_total - beta_joint) / sqrt(se_total^2 + se_joint^2)
   pval <- 2 * (1 - pnorm(abs(z)))
   
+  # Optional: assign models to global environment (for inspection)
+  # assign("sdoh_mort", sdoh_mort, envir = .GlobalEnv)
+  # assign("sdoh_FI_AHEI_mort", sdoh_FI_AHEI_mort, envir = .GlobalEnv)
+  
   return(list(
     beta_total = beta_total,
+    se_total = se_total,        # ✅ added
     beta_joint = beta_joint,
+    se_joint = se_joint,        # ✅ added
     HR_total = exp(beta_total),
     HR_joint = exp(beta_joint),
     prop_joint = prop_joint,
@@ -251,32 +255,46 @@ run_joint_mediation <- function(covariate_list, design_obj) {
 }
 
 
-# H5. Diet quality mediates  food insecurity → mortality,  adjusting for SDOH + covariates.-------
+
+# 5. Diet quality mediates  food insecurity → mortality,  adjusting for SDOH + covariates.-------
+# H5
 
 # ---- FUNCTION 3: AHEI mediates FI → Mortality ----
+
 run_FI_mediation_by_ahei <- function(covariate_list, design_obj) {
-  model_total <- svycoxph(
+  # Step 1: Total effect of FI on mortality
+  FI_mort <- svycoxph(
     as.formula(paste("Surv(py, MORTSTAT) ~ FI + sdoh_score +", paste(covariate_list, collapse = " + "))),
     design = design_obj
   )
-  model_adj <- svycoxph(
+  
+  # Step 2: Mediation by AHEI
+  FI_AHEI_mort <- svycoxph(
     as.formula(paste("Surv(py, MORTSTAT) ~ FI + ahei_total + sdoh_score +", paste(covariate_list, collapse = " + "))),
     design = design_obj
   )
   
-  beta_total <- coef(model_total)["FI"]
-  beta_mediator <- coef(model_adj)["FI"]
+  # Extract betas and SEs for FI
+  beta_total <- coef(FI_mort)["FI"]
+  beta_mediator <- coef(FI_AHEI_mort)["FI"]
   
-  se_total <- sqrt(vcov(model_total)["FI", "FI"])
-  se_mediator <- sqrt(vcov(model_adj)["FI", "FI"])
+  se_total <- sqrt(vcov(FI_mort)["FI", "FI"])
+  se_mediator <- sqrt(vcov(FI_AHEI_mort)["FI", "FI"])
   
+  # Calculate proportion mediated and p-value
   prop <- (beta_total - beta_mediator) / beta_total
   z <- (beta_total - beta_mediator) / sqrt(se_total^2 + se_mediator^2)
   pval <- 2 * (1 - pnorm(abs(z)))
   
+  # Optional: expose model objects to global environment for debugging
+  # assign("FI_mort", FI_mort, envir = .GlobalEnv)
+  # assign("FI_AHEI_mort", FI_AHEI_mort, envir = .GlobalEnv)
+  
   return(list(
     beta_total = beta_total,
+    se_total = se_total,             # ✅ added
     beta_mediator = beta_mediator,
+    se_mediator = se_mediator,       # ✅ added
     HR_total = exp(beta_total),
     HR_mediator = exp(beta_mediator),
     prop_mediated = prop,
@@ -285,32 +303,52 @@ run_FI_mediation_by_ahei <- function(covariate_list, design_obj) {
 }
 
 
-# H6. Exploratory: depressive mediates food insecurity → mortality, adjusting for SDOH + covariates.-----
+# 6. Exploratory: depressive mediates food insecurity → mortality, adjusting for SDOH + covariates.-----
+# H6
+# ---- FUNCTION 4: Depression mediates FI → Mortality (complete-case version) -----
 
-# ---- FUNCTION 4: Depression mediates FI → Mortality ----
 run_FI_mediation_by_depression <- function(covariate_list, design_obj) {
-  model_total <- svycoxph(
+  
+  # Step 1: Identify variables used in both models
+  vars_needed <- c("FI", "sdoh_score", "probable_depression", covariate_list, "MORTSTAT", "py")
+  
+  # Step 2: Subset to complete cases
+  complete_cases <- design_obj$variables[complete.cases(design_obj$variables[, ..vars_needed]), ]
+  
+  # Step 3: Subset survey design to matched sample
+  design_cc <- subset(design_obj, SEQN %in% complete_cases$SEQN)
+  
+  # Step 4: Fit models on matched sample
+  FI_sdoh_mort <- svycoxph(
     as.formula(paste("Surv(py, MORTSTAT) ~ FI + sdoh_score +", paste(covariate_list, collapse = " + "))),
-    design = design_obj
+    design = design_cc
   )
-  model_adj <- svycoxph(
+  
+  FI_depression_mort <- svycoxph(
     as.formula(paste("Surv(py, MORTSTAT) ~ FI + probable_depression + sdoh_score +", paste(covariate_list, collapse = " + "))),
-    design = design_obj
+    design = design_cc
   )
   
-  beta_total <- coef(model_total)["FI"]
-  beta_mediator <- coef(model_adj)["FI"]
+  # Step 5: Extract estimates and SEs
+  beta_total <- coef(FI_sdoh_mort)["FI"]
+  beta_mediator <- coef(FI_depression_mort)["FI"]
   
-  se_total <- sqrt(vcov(model_total)["FI", "FI"])
-  se_mediator <- sqrt(vcov(model_adj)["FI", "FI"])
+  se_total <- sqrt(vcov(FI_sdoh_mort)["FI", "FI"])
+  se_mediator <- sqrt(vcov(FI_depression_mort)["FI", "FI"])
   
   prop <- (beta_total - beta_mediator) / beta_total
   z <- (beta_total - beta_mediator) / sqrt(se_total^2 + se_mediator^2)
   pval <- 2 * (1 - pnorm(abs(z)))
   
+  # Optional: Assign models to global env for verification
+  # assign("FI_sdoh_mort", FI_sdoh_mort, envir = .GlobalEnv)
+  # assign("FI_depression_mort", FI_depression_mort, envir = .GlobalEnv)
+  
   return(list(
     beta_total = beta_total,
+    se_total = se_total,             # ✅ added
     beta_mediator = beta_mediator,
+    se_mediator = se_mediator,       # ✅ added
     HR_total = exp(beta_total),
     HR_mediator = exp(beta_mediator),
     prop_mediated = prop,
@@ -319,25 +357,32 @@ run_FI_mediation_by_depression <- function(covariate_list, design_obj) {
 }
 
 
-# 7.1 Run Models for All Cov Sets -----
+# 7.1 Run Models for All Covariate Sets -----
 # Run all hypotheses with 3 covariate sets
-result_base <- run_separate_mediation(covariates_base, nhanes_design)
-result_behavior <- run_separate_mediation(cov_base_behavior, nhanes_design)
-result_full <- run_separate_mediation(covariates_full, nhanes_design)
 
+# H3a & H3b: SDOH → Mortality, mediated by FI and AHEI separately
+result_sdoh_base <- run_separate_mediation(covariates_base, nhanes_design)
+result_sdoh_behavior <- run_separate_mediation(cov_base_behavior, nhanes_design)
+result_sdoh_full <- run_separate_mediation(covariates_full, nhanes_design)
+
+# H4: Joint mediation by FI + AHEI
 result_joint_base <- run_joint_mediation(covariates_base, nhanes_design)
 result_joint_behavior <- run_joint_mediation(cov_base_behavior, nhanes_design)
 result_joint_full <- run_joint_mediation(covariates_full, nhanes_design)
 
+# H5: AHEI mediates FI → Mortality
 result_FI_base <- run_FI_mediation_by_ahei(covariates_base, nhanes_design)
 result_FI_behavior <- run_FI_mediation_by_ahei(cov_base_behavior, nhanes_design)
 result_FI_full <- run_FI_mediation_by_ahei(covariates_full, nhanes_design)
 
+# H6: Depression mediates FI → Mortality
 result_dep_base <- run_FI_mediation_by_depression(covariates_base, nhanes_design)
 result_dep_behavior <- run_FI_mediation_by_depression(cov_base_behavior, nhanes_design)
 result_dep_full <- run_FI_mediation_by_depression(covariates_full, nhanes_design)
 
-# 7.2 Build Summary Table
+
+# 7.2 Build Summary Table for All Hypotheses -----
+
 # Summary of all hypotheses in long form
 combined_mediation_long <- data.frame(
   Hypothesis = rep(c(
@@ -348,100 +393,238 @@ combined_mediation_long <- data.frame(
     "H6: Depression mediates FI → Mortality"
   ), each = 3),
   
-  Covariate_Set = rep(c("Base", "Base + Behavior", "Full"), times = 5),
-  
-  HR_Total = round(c(
-    exp(result_base$beta_total),       # H3a
-    exp(result_behavior$beta_total),
-    exp(result_full$beta_total),
-    
-    exp(result_base$beta_total),       # H3b (same base)
-    exp(result_behavior$beta_total),
-    exp(result_full$beta_total),
-    
-    result_joint_base$HR_total,        # H4
-    result_joint_behavior$HR_total,
-    result_joint_full$HR_total,
-    
-    result_FI_base$HR_total,           # H5
-    result_FI_behavior$HR_total,
-    result_FI_full$HR_total,
-    
-    result_dep_base$HR_total,          # H6
-    result_dep_behavior$HR_total,
-    result_dep_full$HR_total
-  ), 3),
-  
-  HR_Adjusted = round(c(
-    exp(result_base$beta_FI),          # H3a
-    exp(result_behavior$beta_FI),
-    exp(result_full$beta_FI),
-    
-    exp(result_base$beta_AHEI),        # H3b
-    exp(result_behavior$beta_AHEI),
-    exp(result_full$beta_AHEI),
-    
-    result_joint_base$HR_joint,        # H4
-    result_joint_behavior$HR_joint,
-    result_joint_full$HR_joint,
-    
-    result_FI_base$HR_mediator,        # H5
-    result_FI_behavior$HR_mediator,
-    result_FI_full$HR_mediator,
-    
-    result_dep_base$HR_mediator,       # H6
-    result_dep_behavior$HR_mediator,
-    result_dep_full$HR_mediator
-  ), 3),
-  
-  Prop_Mediated = round(c(
-    result_base$prop_FI,
-    result_behavior$prop_FI,
-    result_full$prop_FI,
-    
-    result_base$prop_AHEI,
-    result_behavior$prop_AHEI,
-    result_full$prop_AHEI,
-    
-    result_joint_base$prop_joint,
-    result_joint_behavior$prop_joint,
-    result_joint_full$prop_joint,
-    
-    result_FI_base$prop_mediated,
-    result_FI_behavior$prop_mediated,
-    result_FI_full$prop_mediated,
-    
-    result_dep_base$prop_mediated,
-    result_dep_behavior$prop_mediated,
-    result_dep_full$prop_mediated
-  ) * 100, 2),
-  
-  P_Value = signif(c(
-    result_base$pval_FI,
-    result_behavior$pval_FI,
-    result_full$pval_FI,
-    
-    result_base$pval_AHEI,
-    result_behavior$pval_AHEI,
-    result_full$pval_AHEI,
-    
-    result_joint_base$pval_joint,
-    result_joint_behavior$pval_joint,
-    result_joint_full$pval_joint,
-    
-    result_FI_base$pval,
-    result_FI_behavior$pval,
-    result_FI_full$pval,
-    
-    result_dep_base$pval,
-    result_dep_behavior$pval,
-    result_dep_full$pval
-  ), 3)
+  Covariate_Set = rep(c("Base", "Base + Behavior", "Full"), times = 5)
 )
 
-# View results
+# Helper function to compute CI
+get_ci <- function(beta, se) {
+  lower <- exp(beta - 1.96 * se)
+  upper <- exp(beta + 1.96 * se)
+  return(c(round(lower, 2), round(upper, 2)))
+}
+
+# HR Total
+betas_total <- c(
+  result_sdoh_base$beta_total,
+  result_sdoh_behavior$beta_total,
+  result_sdoh_full$beta_total,
+  
+  result_sdoh_base$beta_total,
+  result_sdoh_behavior$beta_total,
+  result_sdoh_full$beta_total,
+  
+  log(result_joint_base$HR_total),
+  log(result_joint_behavior$HR_total),
+  log(result_joint_full$HR_total),
+  
+  log(result_FI_base$HR_total),
+  log(result_FI_behavior$HR_total),
+  log(result_FI_full$HR_total),
+  
+  log(result_dep_base$HR_total),
+  log(result_dep_behavior$HR_total),
+  log(result_dep_full$HR_total)
+)
+
+ses_total <- c(
+  result_sdoh_base$se_total,
+  result_sdoh_behavior$se_total,
+  result_sdoh_full$se_total,
+  
+  result_sdoh_base$se_total,
+  result_sdoh_behavior$se_total,
+  result_sdoh_full$se_total,
+  
+  result_joint_base$se_total,
+  result_joint_behavior$se_total,
+  result_joint_full$se_total,
+  
+  result_FI_base$se_total,
+  result_FI_behavior$se_total,
+  result_FI_full$se_total,
+  
+  result_dep_base$se_total,
+  result_dep_behavior$se_total,
+  result_dep_full$se_total
+)
+
+cis_total <- t(mapply(get_ci, betas_total, ses_total))
+combined_mediation_long$HR_Total <- round(exp(betas_total), 2)
+combined_mediation_long$HR_Total_LCL <- cis_total[,1]
+combined_mediation_long$HR_Total_UCL <- cis_total[,2]
+
+# HR Adjusted
+betas_adj <- c(
+  result_sdoh_base$beta_FI,
+  result_sdoh_behavior$beta_FI,
+  result_sdoh_full$beta_FI,
+  
+  result_sdoh_base$beta_AHEI,
+  result_sdoh_behavior$beta_AHEI,
+  result_sdoh_full$beta_AHEI,
+  
+  log(result_joint_base$HR_joint),
+  log(result_joint_behavior$HR_joint),
+  log(result_joint_full$HR_joint),
+  
+  log(result_FI_base$HR_mediator),
+  log(result_FI_behavior$HR_mediator),
+  log(result_FI_full$HR_mediator),
+  
+  log(result_dep_base$HR_mediator),
+  log(result_dep_behavior$HR_mediator),
+  log(result_dep_full$HR_mediator)
+)
+
+ses_adj <- c(
+  result_sdoh_base$se_FI,
+  result_sdoh_behavior$se_FI,
+  result_sdoh_full$se_FI,
+  
+  result_sdoh_base$se_AHEI,
+  result_sdoh_behavior$se_AHEI,
+  result_sdoh_full$se_AHEI,
+  
+  result_joint_base$se_joint,
+  result_joint_behavior$se_joint,
+  result_joint_full$se_joint,
+  
+  result_FI_base$se_mediator,
+  result_FI_behavior$se_mediator,
+  result_FI_full$se_mediator,
+  
+  result_dep_base$se_mediator,
+  result_dep_behavior$se_mediator,
+  result_dep_full$se_mediator
+)
+
+cis_adj <- t(mapply(get_ci, betas_adj, ses_adj))
+combined_mediation_long$HR_Adjusted <- round(exp(betas_adj), 2)
+combined_mediation_long$HR_Adj_LCL <- cis_adj[,1]
+combined_mediation_long$HR_Adj_UCL <- cis_adj[,2]
+
+# Add Prop Mediated and P-value (same as before)
+combined_mediation_long$Prop_Mediated <- round(c(
+  result_sdoh_base$prop_FI,
+  result_sdoh_behavior$prop_FI,
+  result_sdoh_full$prop_FI,
+  
+  result_sdoh_base$prop_AHEI,
+  result_sdoh_behavior$prop_AHEI,
+  result_sdoh_full$prop_AHEI,
+  
+  result_joint_base$prop_joint,
+  result_joint_behavior$prop_joint,
+  result_joint_full$prop_joint,
+  
+  result_FI_base$prop_mediated,
+  result_FI_behavior$prop_mediated,
+  result_FI_full$prop_mediated,
+  
+  result_dep_base$prop_mediated,
+  result_dep_behavior$prop_mediated,
+  result_dep_full$prop_mediated
+) * 100, 2)
+
+combined_mediation_long$P_Value <- signif(c(
+  result_sdoh_base$pval_FI,
+  result_sdoh_behavior$pval_FI,
+  result_sdoh_full$pval_FI,
+  
+  result_sdoh_base$pval_AHEI,
+  result_sdoh_behavior$pval_AHEI,
+  result_sdoh_full$pval_AHEI,
+  
+  result_joint_base$pval_joint,
+  result_joint_behavior$pval_joint,
+  result_joint_full$pval_joint,
+  
+  result_FI_base$pval,
+  result_FI_behavior$pval,
+  result_FI_full$pval,
+  
+  result_dep_base$pval,
+  result_dep_behavior$pval,
+  result_dep_full$pval
+), 2)
+
+
+
 print(combined_mediation_long)
 
+##### Create CI helper function ----
+get_hr_ci <- function(beta, se) {
+  HR <- exp(beta)
+  LCL <- exp(beta - 1.96 * se)
+  UCL <- exp(beta + 1.96 * se)
+  return(round(c(HR, LCL, UCL), 2))
+}
+
+##### Extract log(HR) and SE for FI and AHEI from model ----
+beta_FI <- coef(fs_sdoh_diet_mt)["FI"]
+se_FI <- sqrt(vcov(fs_sdoh_diet_mt)["FI", "FI"])
+ci_FI <- get_hr_ci(beta_FI, se_FI)
+
+beta_AHEI <- coef(fs_sdoh_diet_mt)["ahei_total"]
+se_AHEI <- sqrt(vcov(fs_sdoh_diet_mt)["ahei_total", "ahei_total"])
+ci_AHEI <- get_hr_ci(beta_AHEI, se_AHEI)
+
+##### Create new rows for Hypothesis 1 and 2 with CI columns ----
+hypo1_row <- data.frame(
+  Hypothesis = "H1: FI → Mortality (+ SDOH, AHEI, covariates)",
+  Covariate_Set = "Full",
+  HR_Total = ci_FI[1],
+  HR_Total_LCL = ci_FI[2],
+  HR_Total_UCL = ci_FI[2],
+  HR_Adjusted = NA,
+  HR_Adj_LCL = NA,
+  HR_Adj_UCL = NA,
+  Prop_Mediated = NA,
+  P_Value = signif(summary(fs_sdoh_diet_mt)$coefficients["FI", "Pr(>|z|)"], 2)
+)
+
+hypo2_row <- data.frame(
+  Hypothesis = "H2: AHEI → Mortality (+ SDOH, FI, covariates)",
+  Covariate_Set = "Full",
+  HR_Total = ci_AHEI[1],
+  HR_Total_LCL = ci_AHEI[2],
+  HR_Total_UCL = ci_AHEI[2],
+  HR_Adjusted = NA,
+  HR_Adj_LCL = NA,
+  HR_Adj_UCL = NA,
+  Prop_Mediated = NA,
+  P_Value = signif(summary(fs_sdoh_diet_mt)$coefficients["ahei_total", "Pr(>|z|)"], 2)
+)
+
+##### Combine with updated mediation table ----
+combined_mediation_long <- rbind(
+  hypo1_row,
+  hypo2_row,
+  combined_mediation_long
+)
+
+print(combined_mediation_long)
+
+##### Create formatted HR_Total column with CI ----
+combined_mediation_long <- combined_mediation_long %>%
+  mutate(
+    HR_Total = ifelse(
+      !is.na(HR_Total),
+      sprintf("%.2f (%.2f, %.2f)", HR_Total, HR_Total_LCL, HR_Total_UCL),
+      NA
+    ),
+    HR_Adjusted = ifelse(
+      !is.na(HR_Adjusted),
+      sprintf("%.2f (%.2f, %.2f)", HR_Adjusted, HR_Adj_LCL, HR_Adj_UCL),
+      NA
+    )
+  )
+
+
+combined_mediation_long <- combined_mediation_long %>%
+  select(-HR_Total_LCL, -HR_Total_UCL, -HR_Adj_LCL, -HR_Adj_UCL)
+
+print(combined_mediation_long)
 
 # export to doc 
 
@@ -450,13 +633,16 @@ output_path_csv <- "/Users/dengshuyue/Desktop/SDOH/analysis/output/mediation_sum
 output_path_docx <- "/Users/dengshuyue/Desktop/SDOH/analysis/output/mediation_summary_table.docx"
 
 # Save CSV version
-write_csv(combined_mediation_long, output_path_csv)
+combined_export <- combined_mediation_long %>%
+  mutate(Hypothesis = str_replace_all(Hypothesis, "→", "->"))
+
+write_csv(combined_export, output_path_csv)
 
 # Create flextable
 mediation_flex <- flextable(combined_mediation_long)
 
 # Optional: autofit columns for better display
-mediation_flex <- autofit(mediation_flex)
+# mediation_flex <- autofit(mediation_flex)
 
 # Create Word document with the table
 doc <- read_docx() %>%
@@ -465,5 +651,53 @@ doc <- read_docx() %>%
 
 # Save Word document
 print(doc, target = output_path_docx)
+
+
+# 8 FINAL CHECK  -----
+
+verify_mediation <- function(model_total, model_adjusted, exposure_var = "sdoh_score") {
+  # 1. Sample size consistency
+  n_total <- nrow(model_total$y)
+  n_adjusted <- nrow(model_adjusted$y)
+  same_sample <- n_total == n_adjusted
+  
+  # 2. Coefficients and SEs
+  beta_total <- coef(model_total)[exposure_var]
+  se_total <- sqrt(vcov(model_total)[exposure_var, exposure_var])
+  
+  beta_adj <- coef(model_adjusted)[exposure_var]
+  se_adj <- sqrt(vcov(model_adjusted)[exposure_var, exposure_var])
+  
+  # 3. Derived values
+  HR_total <- exp(beta_total)
+  HR_adjusted <- exp(beta_adj)
+  prop_mediated <- (beta_total - beta_adj) / beta_total
+  
+  # 4. Delta method for indirect effect
+  z <- (beta_total - beta_adj) / sqrt(se_total^2 + se_adj^2)
+  p_val <- 2 * (1 - pnorm(abs(z)))
+  
+  # 5. Output
+  cat("=====================================\n")
+  cat("Verification for:", exposure_var, "\n")
+  cat("Sample size equal?:", same_sample, "\n")
+  cat("N Total:", n_total, " | N Adjusted:", n_adjusted, "\n")
+  cat("HR Total:", round(HR_total, 3), "\n")
+  cat("HR Adjusted:", round(HR_adjusted, 3), "\n")
+  cat("Proportion Mediated (%):", round(prop_mediated * 100, 2), "\n")
+  cat("P-Value (delta method):", signif(p_val, 3), "\n")
+  cat("=====================================\n\n")
+}
+
+verify_mediation(sdoh_mort, sdoh_FI_mort, exposure_var = "sdoh_score")
+
+verify_mediation(sdoh_mort, sdoh_AHEI_mort, exposure_var = "sdoh_score")
+
+verify_mediation(FI_mort, FI_AHEI_mort, exposure_var = "FI")
+
+verify_mediation(FI_sdoh_mort, FI_depression_mort, exposure_var = "FI")
+
+
+
 
 
