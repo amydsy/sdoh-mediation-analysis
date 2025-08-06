@@ -146,8 +146,27 @@ svymean(~HYPERTEN, nhanes_design, na.rm = TRUE)
 # Save final merged dataset
 write_csv(df, file.path(dir$data, "SODH_diet_mort3.csv"))
 
-# 5. Prepare Labeled Data for Summary Table -------------------------------------------------
-df <- read_csv(file.path(dir$data, "SODH_diet_mort3.csv"))
+# 5. Merge household size ------------
+# 5.1. Load main dataset
+df <- fread(file.path(dir$data, "SODH_diet_mort3.csv"))
+
+# 5.2. Load household size data
+hhsize_combined <- fread(file.path(dir$data, "household_size_combined.csv"))
+
+# 5.3. Clean and merge
+df$household_size <- NULL  # remove existing version if present
+df <- df %>%
+  left_join(hhsize_combined %>% select(SEQN, household_size), by = "SEQN")
+
+# Optional: check summary
+summary(df$household_size)
+
+# 5.4. Save updated dataset
+fwrite(df, file.path(dir$data, "SODH_diet_mort4.csv"))
+
+
+# 6. Prepare Labeled Data for Summary Table -------------------------------------------------
+df <- read_csv(file.path(dir$data, "SODH_diet_mort4.csv"))
 # Exclude NHANES 2003–2004 cycle due to incompatible depression questionnaire format
 df <- df %>% filter(cycle != "0304")
 
@@ -160,7 +179,8 @@ variable_labels <- c(
   RIDAGEYR = "Age, years", met_hr = "Physical activity, median (SE)", hba1c = "HbA1c",
   sbp = "Systolic Blood Pressure", dbp = "Diastolic Blood Pressure",
   hdl = "High-Density Lipoprotein", ldl = "Low-Density Lipoprotein", tg = "Triglycerides",
-   probable_depression = "Depression", ahei_total = "AHEI", sdoh_score = "SDOH Score" #HEI2015_TOTAL_SCORE = "HEI2015",
+   probable_depression = "Depression", ahei_total = "AHEI", sdoh_score = "SDOH Score",  household_size = "Household Size"
+  #HEI2015_TOTAL_SCORE = "HEI2015",
 )
 
 map_variable_labels_once <- function(var_vector) {
@@ -175,8 +195,8 @@ names(df_labeled) <- map_variable_labels_once(names(df_labeled))
 as_var_formula <- function(v) as.formula(paste0("~`", v, "`"))
 
 
-# 6. Create Summary Table with Survey Design -----------------------------------------------
-# 6.1. Survey design
+# 7. Create Summary Table with Survey Design -----------------------------------------------
+# 7.1. Survey design
 nhanes_design <- svydesign(
   id = ~sdmvpsu,
   strata = ~sdmvstra,
@@ -185,7 +205,7 @@ nhanes_design <- svydesign(
   nest = TRUE
 )
 
-# 6.2 Categorical variables -----
+# 7.2 Categorical variables -----
 cat_vars <- c("Sex", "Race", "Education", "Family income to poverty ratio", "SNAP", "Smoking status", "Drinking status", "BMI", "Food Insecurity")
 
 cat_results <- lapply(cat_vars, function(v) {
@@ -205,7 +225,7 @@ cat_results <- lapply(cat_vars, function(v) {
   )
 }) %>% bind_rows()
 
-# 6.3 Binary variables ------
+# 7.3 Binary variables ------
 binary_vars <- c("Diabetes", "CVD", "DiabetesRx", "Cholestory", "Angina", "Cancer", "Lung-disease", "Death", "Depression")
 
 binary_results <- lapply(binary_vars, function(v) {
@@ -222,10 +242,10 @@ binary_results <- lapply(binary_vars, function(v) {
   )
 }) %>% bind_rows()
 
-# 6.4 Continuous variables ------
+# 7.4 Continuous variables ------
 cont_vars <- c("Age, years", "Physical activity, median (SE)", "HbA1c", "Systolic Blood Pressure", 
                "Diastolic Blood Pressure", "High-Density Lipoprotein", 
-               "Low-Density Lipoprotein", "Triglycerides", "AHEI", "SDOH Score") # "HEI2015", 
+               "Low-Density Lipoprotein", "Triglycerides", "AHEI", "SDOH Score", "Household Size") # "HEI2015", 
 
 #cont_results <- lapply(cont_vars, function(v) {
 #  count <- sum(!is.na(df_labeled[[v]]))
@@ -277,7 +297,7 @@ cont_results$SE[cont_results$Variable == "Physical activity, median (SE)"] <-
 
 
 
-# 6.5 Category labels ------
+# 6.7 Category labels ------
 category_labels <- list(
   Sex = c("1" = "Male", "2" = "Female"),
   Race = c("1" = "Non-Hispanic White", "2" = "Non-Hispanic Black", "3" = "Hispanic", "4" = "Other"),
@@ -302,7 +322,7 @@ cat_results <- cat_results %>%
   ) %>%
   ungroup()
 
-# 6.6 Combine all ------
+# 6.7 Combine all ------
 full_summary <- bind_rows(cat_results, binary_results, cont_results)
 
 ##### Formatting----------
@@ -310,7 +330,7 @@ bmi_levels_ordered <- c("<18.5 kg/m2", "18-24.9 kg/m2", "25-29.9 kg/m2", "≥30 
 mean_sd_vars <- c("Age, years", "Physical activity, median (SE)", "HbA1c", 
                   "Systolic Blood Pressure", "Diastolic Blood Pressure",
                   "High-Density Lipoprotein", "Low-Density Lipoprotein",
-                  "Triglycerides", "AHEI", "SDOH Score")
+                  "Triglycerides", "AHEI", "Household Size", "SDOH Score")
 
 full_summary <- full_summary %>%
   mutate(
@@ -322,7 +342,7 @@ full_summary <- full_summary %>%
 
 ##### Add groupings ------
 groupings <- list(
-  "Sociodemographics" = c("Sex", "Race", "Education", "Family income to poverty ratio", "SNAP", "Food Insecurity","SDOH Score"),
+  "Sociodemographics" = c("Sex", "Race", "Education", "Family income to poverty ratio", "SNAP", "Food Insecurity", "Household Size","SDOH Score"),
   "Health Behaviors" = c("Smoking status", "Drinking status", "Physical activity, median (SE)"),
   "Clinical Characteristics" = c("BMI", "HbA1c", "Diabetes", "DiabetesRx", "CVD", "Angina", "Cancer", "Cholestory", "Lung-disease", "Depression", "Death"),
   "Dietary & Physiologic Measures" = c("Age, years", "Systolic Blood Pressure", "Diastolic Blood Pressure", 
@@ -347,7 +367,7 @@ full_summary <- full_summary %>%
   select(Group, Variable, Category, `Primary population, N (%) or Mean (SE)`)
 
 
-# 6.7 Export and Display-------
+# 7.7 Export and Display-------
 write_csv(full_summary, "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_summary_table.csv")
 
 demo_flex <- flextable(full_summary)
