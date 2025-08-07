@@ -4,5 +4,6 @@ code_lu/
 .rdatatmp1
 .rdatatmp2
 .rdatatmp3
+*rdatatmp*
 .RData
 .Rhistory
