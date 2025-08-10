@@ -30,7 +30,7 @@ lapply(want, function(pkg) require(pkg, character.only = TRUE))
 rm(want, need)
 
 # 1.0 Load merged dataset -----
-df <- fread(file.path(dir$data, "SODH_diet_mort4.csv"))
+df <- fread(file.path(dir$data, "SODH_diet_mort6.csv"))
 
 # Check SDOH score and mortality variables
 names(df)
@@ -194,6 +194,11 @@ run_separate_mediation <- function(covariate_list, design_obj) {
   pval_FI <- 2 * (1 - pnorm(abs(z_FI)))
   pval_AHEI <- 2 * (1 - pnorm(abs(z_AHEI)))
   
+  # Optional: assign models to global environment (for inspection)
+  assign("sdoh_mort", sdoh_mort, envir = .GlobalEnv)
+  assign("sdoh_FI_mort", sdoh_FI_mort, envir = .GlobalEnv)
+  assign("sdoh_AHEI_mort", sdoh_AHEI_mort, envir = .GlobalEnv)
+  
   return(list(
     beta_total = beta_total,
     se_total = se_total,
@@ -239,8 +244,8 @@ run_joint_mediation <- function(covariate_list, design_obj) {
   pval <- 2 * (1 - pnorm(abs(z)))
   
   # Optional: assign models to global environment (for inspection)
-  # assign("sdoh_mort", sdoh_mort, envir = .GlobalEnv)
-  # assign("sdoh_FI_AHEI_mort", sdoh_FI_AHEI_mort, envir = .GlobalEnv)
+  assign("sdoh_mort", sdoh_mort, envir = .GlobalEnv)
+  assign("sdoh_FI_AHEI_mort", sdoh_FI_AHEI_mort, envir = .GlobalEnv)
   
   return(list(
     beta_total = beta_total,
@@ -287,8 +292,8 @@ run_FI_mediation_by_ahei <- function(covariate_list, design_obj) {
   pval <- 2 * (1 - pnorm(abs(z)))
   
   # Optional: expose model objects to global environment for debugging
-  # assign("FI_mort", FI_mort, envir = .GlobalEnv)
-  # assign("FI_AHEI_mort", FI_AHEI_mort, envir = .GlobalEnv)
+  assign("FI_mort", FI_mort, envir = .GlobalEnv)
+  assign("FI_AHEI_mort", FI_AHEI_mort, envir = .GlobalEnv)
   
   return(list(
     beta_total = beta_total,
@@ -341,8 +346,8 @@ run_FI_mediation_by_depression <- function(covariate_list, design_obj) {
   pval <- 2 * (1 - pnorm(abs(z)))
   
   # Optional: Assign models to global env for verification
-  # assign("FI_sdoh_mort", FI_sdoh_mort, envir = .GlobalEnv)
-  # assign("FI_depression_mort", FI_depression_mort, envir = .GlobalEnv)
+  assign("FI_sdoh_mort", FI_sdoh_mort, envir = .GlobalEnv)
+  assign("FI_depression_mort", FI_depression_mort, envir = .GlobalEnv)
   
   return(list(
     beta_total = beta_total,
@@ -557,7 +562,7 @@ get_hr_ci <- function(beta, se) {
   HR <- exp(beta)
   LCL <- exp(beta - 1.96 * se)
   UCL <- exp(beta + 1.96 * se)
-  return(round(c(HR, LCL, UCL), 2))
+  return(round(c(HR, LCL, UCL), 3))
 }
 
 ##### Extract log(HR) and SE for FI and AHEI from model ----
@@ -569,33 +574,43 @@ beta_AHEI <- coef(fs_sdoh_diet_mt)["ahei_total"]
 se_AHEI <- sqrt(vcov(fs_sdoh_diet_mt)["ahei_total", "ahei_total"])
 ci_AHEI <- get_hr_ci(beta_AHEI, se_AHEI)
 
+
+# --- FI ---
+beta_FI <- coef(fs_sdoh_diet_mt)["FI"]
+se_FI <- sqrt(vcov(fs_sdoh_diet_mt)["FI", "FI"])
+ci_FI <- get_hr_ci(beta_FI, se_FI)  # should return c(HR, LCL, UCL)
+
+# --- AHEI ---
+beta_AHEI <- coef(fs_sdoh_diet_mt)["ahei_total"]
+se_AHEI <- sqrt(vcov(fs_sdoh_diet_mt)["ahei_total", "ahei_total"])
+ci_AHEI <- get_hr_ci(beta_AHEI, se_AHEI)
+
 ##### Create new rows for Hypothesis 1 and 2 with CI columns ----
 hypo1_row <- data.frame(
   Hypothesis = "H1: FI → Mortality (+ SDOH, AHEI, covariates)",
   Covariate_Set = "Full",
   HR_Total = ci_FI[1],
   HR_Total_LCL = ci_FI[2],
-  HR_Total_UCL = ci_FI[2],
+  HR_Total_UCL = ci_FI[3],
   HR_Adjusted = NA,
   HR_Adj_LCL = NA,
   HR_Adj_UCL = NA,
   Prop_Mediated = NA,
   P_Value = signif(summary(fs_sdoh_diet_mt)$coefficients["FI", "Pr(>|z|)"], 2)
 )
-
+# --- Create rows ---
 hypo2_row <- data.frame(
   Hypothesis = "H2: AHEI → Mortality (+ SDOH, FI, covariates)",
   Covariate_Set = "Full",
   HR_Total = ci_AHEI[1],
   HR_Total_LCL = ci_AHEI[2],
-  HR_Total_UCL = ci_AHEI[2],
+  HR_Total_UCL = ci_AHEI[3],
   HR_Adjusted = NA,
   HR_Adj_LCL = NA,
   HR_Adj_UCL = NA,
   Prop_Mediated = NA,
   P_Value = signif(summary(fs_sdoh_diet_mt)$coefficients["ahei_total", "Pr(>|z|)"], 2)
 )
-
 ##### Combine with updated mediation table ----
 combined_mediation_long <- rbind(
   hypo1_row,
@@ -629,8 +644,8 @@ print(combined_mediation_long)
 # export to doc 
 
 # Define output path
-output_path_csv <- "/Users/dengshuyue/Desktop/SDOH/analysis/output/mediation_summary_table.csv"
-output_path_docx <- "/Users/dengshuyue/Desktop/SDOH/analysis/output/mediation_summary_table.docx"
+output_path_csv <- "/Users/dengshuyue/Desktop/SDOH/analysis/output/mediation_summary_table2.csv"
+output_path_docx <- "/Users/dengshuyue/Desktop/SDOH/analysis/output/mediation_summary_table2.docx"
 
 # Save CSV version
 combined_export <- combined_mediation_long %>%
@@ -697,7 +712,8 @@ verify_mediation(FI_mort, FI_AHEI_mort, exposure_var = "FI")
 
 verify_mediation(FI_sdoh_mort, FI_depression_mort, exposure_var = "FI")
 
-
+summary(FI_depression_mort)
+summary(FI_AHEI_mort)
 
 
 

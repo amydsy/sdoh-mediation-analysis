@@ -167,10 +167,98 @@ fwrite(df, file.path(dir$data, "SODH_diet_mort4.csv"))
 
 # 6. Prepare Labeled Data for Summary Table -------------------------------------------------
 df <- read_csv(file.path(dir$data, "SODH_diet_mort4.csv"))
-# Exclude NHANES 2003–2004 cycle due to incompatible depression questionnaire format
-df <- df %>% filter(cycle != "0304")
 
-# 5.1. Define variable name mapping
+# 6.1 check missing -----
+# Covariates for Cox regression and mediation analysis
+covariates_base <- c(
+  "RIDAGEYR",       # Age
+  "SEX",            # Sex
+  "RACE",           # Race/ethnicity
+  "household_size" # Household size
+)
+covariates_behavior <- c(
+  "SMK_AVG",        # Avg cigarettes per day
+  "SMK",            # Former smoker 
+  "ALCG2",          # Alcohol use category
+  "met_hr"          # Physical activity (quintile)
+)
+covariates_clinical <- c(
+  "bmic",           # BMI category
+  "DIABE",          # Diabetes
+  "HYPERTEN",       # Hypertension
+  "chol_rx",        # High cholesterol
+  "CVD",            # Cardiovascular disease
+  "cancer"          # Cancer history
+)
+
+# gut check 
+nrow(df)-sum(is.na(df$sdoh_score)) - sum(is.na(df$probable_depression))- sum(is.na(df$SMK_AVG))- sum(is.na(df$SMK))
+
+# 6.2 remove missing ( not exclude miss for depression)-----
+df <- read_csv(file.path(dir$data, "SODH_diet_mort4.csv"))
+
+vars_to_check <- c(
+ # "probable_depression",
+  "sdoh_score",
+  "ahei_total",
+  covariates_base,
+  covariates_behavior,
+  covariates_clinical
+)
+
+# Missing count & percentage
+na_counts <- sapply(df[vars_to_check], function(x) sum(is.na(x)))
+na_percent <- sapply(df[vars_to_check], function(x) mean(is.na(x)) * 100)
+
+# Summary table
+missing_summary <- data.frame(
+  Variable = vars_to_check,
+  NA_Count = na_counts,
+  NA_Percent = round(na_percent, 2)
+)
+
+vars_to_check <- missing_summary$Variable
+
+# Remove rows with NA in any of these variables
+df_complete <- df[complete.cases(df[vars_to_check]), ]
+
+fwrite(df_complete, file.path(dir$data, "SODH_diet_mort5.csv"))
+
+# 6.3 remove missing ( also exclude miss for depression)-----
+# List of variables to check
+# Combine all variables to check
+vars_to_check <- c(
+  "probable_depression",
+  "sdoh_score",
+  "ahei_total",
+  covariates_base,
+  covariates_behavior,
+  covariates_clinical
+)
+
+# Missing count & percentage
+na_counts <- sapply(df[vars_to_check], function(x) sum(is.na(x)))
+na_percent <- sapply(df[vars_to_check], function(x) mean(is.na(x)) * 100)
+
+# Summary table
+missing_summary <- data.frame(
+  Variable = vars_to_check,
+  NA_Count = na_counts,
+  NA_Percent = round(na_percent, 2)
+)
+
+# 34228 - 29566
+vars_to_check <- missing_summary$Variable
+
+# Remove rows with NA in any of these variables
+df_complete <- df[complete.cases(df[vars_to_check]), ]
+
+fwrite(df_complete, file.path(dir$data, "SODH_diet_mort6.csv"))
+
+# 6.4. Define variable name mapping----
+
+df <- read_csv(file.path(dir$data, "SODH_diet_mort6.csv"))
+
 variable_labels <- c(
   SEX = "Sex", RACE = "Race", EDU = "Education", pir = "Family income to poverty ratio", FS = "Food Insecurity",
   SNAP3 = "SNAP", SMK = "Smoking status", ALCG2 = "Drinking status", bmic = "BMI",
@@ -187,7 +275,7 @@ map_variable_labels_once <- function(var_vector) {
   sapply(var_vector, function(v) if (v %in% names(variable_labels)) variable_labels[[v]] else v, USE.NAMES = FALSE)
 }
 
-# 5.2. Rename variables for table output
+# Rename variables for table output
 df_labeled <- df
 names(df_labeled) <- map_variable_labels_once(names(df_labeled))
 
@@ -381,7 +469,7 @@ doc <- read_docx() %>%
   body_add_flextable(demo_flex)
 
 # Save the document
-print(doc, target = "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_summary_table.docx")
+print(doc, target = "/Users/dengshuyue/Desktop/SDOH/analysis/output/demo_summary_table2.docx")
 
 
 # end
