@@ -6,7 +6,7 @@ setwd("/Users/dengshuyue/Desktop/SDOH/analysis")
 # Define directory structure
 dir <- list()
 dir$root    <- getwd()
-dir$data    <- file.path(dir$root, "data")
+dir$data    <- file.path(dir$root, "data/nhanes_deit")
 dir$output  <- file.path(dir$root, "output")
 dir$code    <- file.path(dir$root, "code")
 
