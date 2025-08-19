@@ -1193,6 +1193,7 @@ ahei_nutsleg_tbl <- ahei_input_mped %>%
 report_component(ahei_nutsleg_tbl, "ahei_nutslegumes", title = "Nuts & legumes (per 1000 kcal)")
 
 # ================= Red + processed meat (servings/1000 kcal; min at 0.75) =================
+# 🔥 this is higher need check 
 ahei_meat_tbl <- ahei_input_mped %>%
   transmute(
     SEQN, WTDRD1, energy_kcal,
@@ -1200,6 +1201,7 @@ ahei_meat_tbl <- ahei_input_mped %>%
     ahei_redprocmeat = lin_rev(redproc_per_1000, 0, 1.5 / (E_REF/1000))  # 1.5/day @ 2000kcal = 0.75/1000
   )
 report_component(ahei_meat_tbl, "ahei_redprocmeat", title = "Red + processed meat (per 1000 kcal)")
+
 
 # ================= Long-chain n-3 (EPA + DHA) =================
 # AHEI standard uses absolute mg/day (kept here). If you prefer density, uncomment the *per_1000* lines.
