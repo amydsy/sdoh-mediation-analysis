@@ -491,7 +491,8 @@ other_person <- iff_base %>%
     juice_pack_context = stringr::str_detect(dl, stringr::regex("juice\\s*pack(ed)?|packed\\s*in\\s*(its\\s*|own\\s*)?juice|in\\s*(its\\s*|own\\s*)?juice", TRUE)),
     juice100_flag = is_juice & !juice_pack_context & !is_cocktail & !bev_diet & !bev_milkct,
     
-    # -- RED / PROCESSED MEAT --
+    ##### -- RED / PROCESSED MEAT ------
+    ## 🔥
     beef_any  = stringr::str_detect(dl, "\\bbeef\\b|\\bhamburger\\b"),
     beef_core = stringr::str_detect(dl, "beef\\s*(steak|rib|ribs|roast|ground|patty|patties|meatball|sirloin|ribeye|brisket)") |
       stringr::str_detect(dl, "\\bhamburger\\s*patty\\b"),
@@ -499,7 +500,7 @@ other_person <- iff_base %>%
     beef_excl = stringr::str_detect(dl, "beef\\s*bacon|frankfurter|wiener|hot\\s*dog|sausage|luncheon|lunch\\s*meat|bologna|salami|pepperoni|potted\\s*meat|meat\\s*spread|spam|pastrami|corned\\s*beef"),
     
     pork_any  = stringr::str_detect(dl, "\\bpork\\b|\\bham\\b|sparerib|spareribs"),
-    pork_core = stringr::str_detect(dl, "pork\\s*(chop|steak|cutlet|roast|loin|tenderloin|sparerib|spareribs)|\\bham\\b"),
+    pork_core = stringr::str_detect(dl, "pork\\s*(chop|steak|cutlet|roast|loin|tenderloin|sparerib|spareribs)"),
     pork_mix  = pork_any & stringr::str_detect(dl, "baby\\s*food|gravy|sauce|with\\s*(starch|potato|rice|pasta|noodle|vegetable)|sandwich|frozen|tv\\s*dinner|meal|soup|broth|extract"),
     pork_excl = stringr::str_detect(dl, "canadian\\s*bacon|\\bbacon\\b|salt\\s*pork|pork\\s*skin|frankfurter|wiener|hot\\s*dog|sausage\\b|luncheon|lunch\\s*meat|bologna|salami|pepperoni|potted\\s*meat|meat\\s*spread|spam"),
     
@@ -508,7 +509,19 @@ other_person <- iff_base %>%
     pork_full = pork_core & !pork_mix & !pork_excl,
     pork_half = pork_mix  & !pork_excl,
     
-    proc_core = stringr::str_detect(dl, "canadian\\s*bacon|\\bbacon\\b|salt\\s*pork|pork\\s*skin|frankfurter|wiener|hot\\s*dog|sausage\\b|bratwurst|kielbasa|luncheon|lunch\\s*meat|cold\\s*cut|bologna|salami|pepperoni|potted\\s*meat|meat\\s*spread|liverwurst|pastrami|corned\\s*beef|spam|scrapple"),
+    # proc_core = stringr::str_detect(dl, "canadian\\s*bacon|\\bbacon\\b|salt\\s*pork|pork\\s*skin|frankfurter|wiener|hot\\s*dog|sausage\\b|bratwurst|kielbasa|luncheon|lunch\\s*meat|cold\\s*cut|bologna|salami|pepperoni|potted\\s*meat|meat\\s*spread|liverwurst|pastrami|corned\\s*beef|spam|scrapple|\\bham\\b"),
+    proc_core = stringr::str_detect(
+      dl,
+      paste0(
+        "\\bham\\b|",                                 # ham = processed
+        "canadian\\s*bacon|\\bbacon\\b|salt\\s*pork|pork\\s*skin|",
+        "(frankfurter(s)?|frank(s)?|wiener(s)?|hot\\s*dog(s)?)|",
+        "sausage(s)?\\b|bratwurst|kielbasa|chorizo|",
+        "luncheon\\s*meat|lunch\\s*meat(s)?|cold[-\\s]*cut(s)?|deli\\s*meat(s)?|",
+        "bologna|baloney|salami|pepperoni|pastrami|corned\\s*beef|liverwurst|",
+        "potted\\s*meat|meat\\s*spread|\\bspam\\b|scrapple"
+      )
+    ),
     proc_half = stringr::str_detect(dl, "(sandwich|sub|hoagie|roll|bun).*(frankfurter|hot\\s*dog|wiener|luncheon|lunch\\s*meat|potted\\s*meat)"),
     
     # -- NUTS & LEGUMES --
@@ -720,145 +733,8 @@ cat("ahei_input_mped rows:", nrow(ahei_input_mped),
 
 
 
-# old ========= 6) AHEI scoring (use *_final variables) =========
-### EDIT: replace your current scoring joins with this single-mutate version
 
-lin_pos <- function(x, min0, max10) ifelse(is.na(x), NA_real_, pmax(0, pmin(1, (x - min0)/(max10 - min0))) * 10)
-lin_rev <- function(x, min10, max0) ifelse(is.na(x), NA_real_, pmax(0, pmin(1, (max0 - x)/(max0 - min10))) * 10)
-
-ahei_scores <- ahei_input_mped %>%
-  mutate(
-    # Veg (0.5 cup = 1 serving; max 5/day)
-    veg_serv   = ifelse(is.na(veg_cup_eq_final), NA_real_, veg_cup_eq_final / 0.5),
-    ahei_veg   = lin_pos(veg_serv, 0, 5),
-    
-    # Fruit (0.5 cup = 1 serving; max 4/day)
-    fruit_serv = ifelse(is.na(fruit_cup_eq_final), NA_real_, fruit_cup_eq_final / 0.5),
-    ahei_fruit = lin_pos(fruit_serv, 0, 4),
-    
-    # Whole grains (sex-specific caps)
-    max_wholegr = case_when(RIAGENDR == 2 ~ 75,
-                            RIAGENDR == 1 ~ 90,
-                            TRUE          ~ NA_real_),
-    ahei_wholegrains = ifelse(is.na(wholegr_g_final) | is.na(max_wholegr),
-                              NA_real_, pmin(wholegr_g_final / max_wholegr, 1) * 10),
-    
-    # SSB + 100% juice
-    ahei_ssb = lin_rev(ssb_juice_serv, 0, 1),
-    
-    # Nuts & legumes
-    ahei_nutslegumes = lin_pos(nuts_legumes_serv_final, 0, 1),
-    
-    # Red + processed meat
-    ahei_redprocmeat = lin_rev(redproc_serv_final, 0, 1.5),
-    
-    # Long-chain n-3
-    lc_n3_mg = ifelse(is.na(epa_g) & is.na(dha_g), NA_real_,
-                      (ifelse(is.na(epa_g),0,epa_g) + ifelse(is.na(dha_g),0,dha_g)) * 1000),
-    ahei_longn3 = lin_pos(lc_n3_mg, 0, 250),
-    
-    # PUFA % energy
-    pufa_energy_pct = ifelse(is.na(pufa_g) | is.na(energy_kcal), NA_real_,
-                             (pufa_g * 9) / energy_kcal * 100),
-    ahei_pufa = case_when(
-      is.na(pufa_energy_pct) ~ NA_real_,
-      pufa_energy_pct <= 2   ~ 0,
-      pufa_energy_pct >= 10  ~ 10,
-      TRUE ~ (pufa_energy_pct - 2) / (10 - 2) * 10
-    ),
-    
-    # Alcohol (sex-specific J-curve; uses grams from DR totals)
-    ahei_alcohol = case_when(
-      is.na(alcohol_g) | is.na(RIAGENDR) ~ NA_real_,
-      RIAGENDR == 2 & alcohol_g <= 0                    ~ 0,
-      RIAGENDR == 2 & alcohol_g > 0  & alcohol_g < 7    ~ (alcohol_g / 7) * 10,
-      RIAGENDR == 2 & alcohol_g >= 7  & alcohol_g <= 21 ~ 10,
-      RIAGENDR == 2 & alcohol_g > 21 & alcohol_g < 35   ~ ((35 - alcohol_g) / (35 - 21)) * 10,
-      RIAGENDR == 2 & alcohol_g >= 35                   ~ 0,
-      RIAGENDR == 1 & alcohol_g <= 0                    ~ 0,
-      RIAGENDR == 1 & alcohol_g > 0  & alcohol_g < 7    ~ (alcohol_g / 7) * 10,
-      RIAGENDR == 1 & alcohol_g >= 7  & alcohol_g <= 28 ~ 10,
-      RIAGENDR == 1 & alcohol_g > 28 & alcohol_g < 49   ~ ((49 - alcohol_g) / (49 - 28)) * 10,
-      RIAGENDR == 1 & alcohol_g >= 49                   ~ 0
-    )
-  ) %>%
-  select(SEQN, starts_with("ahei_"))
-
-# Complete cases & total
-ahei_complete <- ahei_scores %>%
-  filter(if_all(starts_with("ahei_"), ~ !is.na(.))) %>%
-  mutate(ahei_total = rowSums(across(starts_with("ahei_")), na.rm = FALSE))
-
-
-
-message("Excluded ", nrow(ahei_all) - nrow(ahei_complete), " participants due to ≥1 missing component.")
-
-
-quick_dup_check <- function(df, nm) {
-  dups <- sum(duplicated(df$SEQN))
-  cat(nm, ": rows=", nrow(df), " unique SEQN=", dplyr::n_distinct(df$SEQN),
-      " dupes=", dups, "\n")
-}
-quick_dup_check(ahei_input_mped, "ahei_input_mped")
-
-
-
-
-# ========= Means for each AHEI section =========
-# ahei_complete: one row per SEQN, all ahei_* present + ahei_total
-# ahei_input_mped: has SEQN, WTDRD1 (and RIAGENDR if you want by-sex later)
-
-# Attach day-1 weight (and sex if you want to stratify later)
-ahei_comp <- ahei_complete %>%
-  left_join(ahei_input_mped %>% select(SEQN, WTDRD1, RIAGENDR), by = "SEQN")
-
-# Components to summarize (include total at the end)
-comp_cols <- names(ahei_comp)[grepl("^ahei_", names(ahei_comp))]
-comp_cols <- union(setdiff(comp_cols, "ahei_total"), "ahei_total")
-
-# Weighted mean helper (ignores NA in either x or w)
-wmean <- function(x, w) {
-  i <- !is.na(x) & !is.na(w)
-  if (!any(i)) return(NA_real_)
-  sum(x[i] * w[i]) / sum(w[i])
-}
-
-# Unweighted means
-means_unw <- ahei_comp %>%
-  summarise(across(all_of(comp_cols), ~ mean(.x, na.rm = TRUE))) %>%
-  pivot_longer(everything(), names_to = "component", values_to = "mean_unweighted")
-
-# Weighted means (WTDRD1)
-means_w1 <- tibble(
-  component = comp_cols,
-  mean_weighted = map_dbl(comp_cols, ~ wmean(ahei_comp[[.x]], ahei_comp$WTDRD1))
-)
-
-# Weighted means with 6-year combined weight (WTDRD1/3)
-wt6 <- ahei_comp$WTDRD1 / 3
-means_w6 <- tibble(
-  component = comp_cols,
-  mean_weighted_6yr = map_dbl(comp_cols, ~ wmean(ahei_comp[[.x]], wt6))
-)
-
-# Merge and display
-ahei_means <- means_unw %>%
-  left_join(means_w1, by = "component") %>%
-  left_join(means_w6, by = "component") %>%
-  arrange(component)
-
-print(ahei_means, n = nrow(ahei_means))
-
-# ---- Optional: by sex (1=Male, 2=Female)
-# ahei_means_by_sex <- ahei_comp %>%
-#   group_by(RIAGENDR) %>%
-#   summarise(
-#     across(all_of(comp_cols), ~ wmean(.x, WTDRD1), .names = "wmean_{.col}")
-#   )
-# print(ahei_means_by_sex)
-
-
-# ========= 6) AHEI scoring — one component at a time =========
+# 6) AHEI scoring — NOT energy-adjusted  — one component at a time =========
 
 lin_pos <- function(x, min0, max10) ifelse(is.na(x), NA_real_, pmax(0, pmin(1, (x - min0)/(max10 - min0))) * 10)
 lin_rev <- function(x, min10, max0) ifelse(is.na(x), NA_real_, pmax(0, pmin(1, (max0 - x)/(max0 - min10))) * 10)
@@ -883,7 +759,7 @@ report_component <- function(df, score_col, wt_col = "WTDRD1", title = NULL) {
   cat("Mean (WTDRD1/3):  ", wmean(sc, wt6), "\n")
 }
 
-# ---------------- 6.1 Vegetables ----------------
+##### 6.1 Vegetables 
 ahei_veg_tbl <- ahei_input_mped %>%
   transmute(
     SEQN, WTDRD1,
@@ -892,7 +768,7 @@ ahei_veg_tbl <- ahei_input_mped %>%
   )
 report_component(ahei_veg_tbl, "ahei_veg", title = "Vegetables")
 
-# ---------------- 6.2 Fruit ----------------
+##### 6.2 Fruit 
 ahei_fruit_tbl <- ahei_input_mped %>%
   transmute(
     SEQN, WTDRD1,
@@ -901,7 +777,7 @@ ahei_fruit_tbl <- ahei_input_mped %>%
   )
 report_component(ahei_fruit_tbl, "ahei_fruit", title = "Fruit")
 
-# ---------------- 6.3 Whole grains ----------------
+# ---------------- 6.3 Whole grains 
 ahei_grain_tbl <- ahei_input_mped %>%
   transmute(
     SEQN, WTDRD1, RIAGENDR,
@@ -914,7 +790,7 @@ ahei_grain_tbl <- ahei_input_mped %>%
   )
 report_component(ahei_grain_tbl, "ahei_wholegrains", title = "Whole grains")
 
-# ---------------- 6.4 SSB + 100% fruit juice ----------------
+# ---------------- 6.4 SSB + 100% fruit juice 
 ahei_ssb_tbl <- ahei_input_mped %>%
   transmute(
     SEQN, WTDRD1,
@@ -922,7 +798,7 @@ ahei_ssb_tbl <- ahei_input_mped %>%
   )
 report_component(ahei_ssb_tbl, "ahei_ssb", title = "SSB + 100% juice")
 
-# ---------------- 6.5 Nuts & legumes ----------------
+# ---------------- 6.5 Nuts & legumes 
 ahei_nutsleg_tbl <- ahei_input_mped %>%
   transmute(
     SEQN, WTDRD1,
@@ -930,7 +806,7 @@ ahei_nutsleg_tbl <- ahei_input_mped %>%
   )
 report_component(ahei_nutsleg_tbl, "ahei_nutslegumes", title = "Nuts & legumes")
 
-# ---------------- 6.6 Red + processed meat ----------------
+# ---------------- 6.6 Red + processed meat 
 ahei_meat_tbl <- ahei_input_mped %>%
   transmute(
     SEQN, WTDRD1,
@@ -938,7 +814,7 @@ ahei_meat_tbl <- ahei_input_mped %>%
   )
 report_component(ahei_meat_tbl, "ahei_redprocmeat", title = "Red + processed meat")
 
-# ---------------- 6.7 Long-chain n-3 (EPA + DHA) ----------------
+# ---------------- 6.7 Long-chain n-3 (EPA + DHA) 
 ahei_longn3_tbl <- ahei_input_mped %>%
   transmute(
     SEQN, WTDRD1, epa_g, dha_g,
@@ -949,7 +825,7 @@ ahei_longn3_tbl <- ahei_input_mped %>%
   )
 report_component(ahei_longn3_tbl, "ahei_longn3", title = "Long-chain n-3 (EPA+DHA)")
 
-# ---------------- 6.8 PUFA % energy ----------------
+# ---------------- 6.8 PUFA % energy 
 ahei_pufa_tbl <- ahei_input_mped %>%
   transmute(
     SEQN, WTDRD1, pufa_g, energy_kcal,
@@ -963,7 +839,7 @@ ahei_pufa_tbl <- ahei_input_mped %>%
   )
 report_component(ahei_pufa_tbl, "ahei_pufa", title = "PUFA % energy")
 
-# ---------------- 6.9 Alcohol ----------------
+# ---------------- 6.9 Alcohol 
 ahei_alcohol_tbl <- ahei_input_mped %>%
   transmute(
     SEQN, WTDRD1, RIAGENDR, alcohol_g,
@@ -987,10 +863,7 @@ report_component(ahei_alcohol_tbl, "ahei_alcohol", title = "Alcohol")
 
 ahei_input_mped$alcohol_g
 
-
-
-
-# ---- 6.10) Sodium — energy-adjusted & outlier-handled (AHEI decile scoring) ----
+# ---- 6.10) Sodium — energy-adjusted & outlier-handled (AHEI decile scoring) 
 # Approach:
 # 1) Compute sodium density (mg / 1000 kcal).
 # 2) Filter implausible energy days, then winsorize sodium density at weighted 0.5% / 99.5%.
@@ -1074,7 +947,7 @@ summary(sod_base$sod_den_w)   # winsorized density
 summary(ahei_sodium_tbl$ahei_sodium)
 
 
-# ========= Join all components & compute totals =========
+# ========= Join all components & compute totals
 ahei_scores <- list(
   ahei_veg_tbl %>% select(SEQN, ahei_veg),
   ahei_fruit_tbl %>% select(SEQN, ahei_fruit),
@@ -1098,6 +971,8 @@ cat("\nParticipants with complete AHEI components: ", nrow(ahei_complete), "\n")
 
 # Optional: quick overall summaries
 print(summary(ahei_complete$ahei_total))
+
+
 
 
 
@@ -1132,16 +1007,20 @@ report_component <- function(df, score_col, wt_col = "WTDRD1", title = NULL) {
 E_REF <- 2000
 per_1000 <- function(x, kcal) ifelse(is.na(x) | is.na(kcal) | kcal <= 0, NA_real_, x / (kcal / 1000))
 
-# ================= Veg (cups/1000 kcal; max at 1.25 cups/1000) =================
+# 6.1) Veg (cups/1000 kcal; max at 1.25 cups/1000) =================
+VEG_SERV_MAX   <- 5        # AHEI standard
+SERVING_CUP    <- 0.5
+E_REF          <- 2000
+VEG_CUPS_MAX   <- VEG_SERV_MAX * SERVING_CUP        # 2.5 cups/day
+VEG_PER1000MAX <- VEG_CUPS_MAX / (E_REF/1000)       # 1.25 cups/1000
+
 ahei_veg_tbl <- ahei_input_mped %>%
-  transmute(
-    SEQN, WTDRD1, energy_kcal,
-    veg_cups_per_1000 = per_1000(veg_cup_eq_final, energy_kcal),
-    ahei_veg = ifelse(
-      is.na(veg_cups_per_1000), NA_real_,
-      pmin(veg_cups_per_1000 / (2.5 / (E_REF/1000)), 1) * 10  # 2.5 cups/day @ 2000kcal = 1.25 cups/1000
-    )
-  )
+  transmute(SEQN, WTDRD1, energy_kcal,
+            veg_cups_per_1000 = per_1000(veg_cup_eq_final, energy_kcal),
+            ahei_veg = ifelse(is.na(veg_cups_per_1000), NA_real_,
+                              pmin(veg_cups_per_1000 / VEG_PER1000MAX, 1) * 10))
+
+
 report_component(ahei_veg_tbl, "ahei_veg", title = "Vegetables (per 1000 kcal)")
 
 # ================= Fruit (cups/1000 kcal; max at 1.0 cups/1000) =================
@@ -1193,13 +1072,24 @@ ahei_nutsleg_tbl <- ahei_input_mped %>%
 report_component(ahei_nutsleg_tbl, "ahei_nutslegumes", title = "Nuts & legumes (per 1000 kcal)")
 
 # ================= Red + processed meat (servings/1000 kcal; min at 0.75) =================
-# 🔥 this is higher need check 
+# AHEI: 10 points at 0 servings; 0 points at 1.5 servings/day.
+# Energy-adjusted threshold at 2000 kcal => 1.5 / 2 = 0.75 servings per 1000 kcal.
+
+MEAT_MAX_PER1000 <- 0.75   # (= 1.5/day at 2000 kcal)
+
 ahei_meat_tbl <- ahei_input_mped %>%
   transmute(
     SEQN, WTDRD1, energy_kcal,
-    redproc_per_1000 = per_1000(redproc_serv_final, energy_kcal),
-    ahei_redprocmeat = lin_rev(redproc_per_1000, 0, 1.5 / (E_REF/1000))  # 1.5/day @ 2000kcal = 0.75/1000
+    redproc_per_1000   = per_1000(redproc_serv_final, energy_kcal),  # servings / 1000 kcal
+    ahei_redprocmeat   = lin_rev(redproc_per_1000, 0, MEAT_MAX_PER1000)
   )
+
+# Quick QC
+summary(ahei_meat_tbl$redproc_per_1000)
+report_component(ahei_meat_tbl, "ahei_redprocmeat", title = "Red + processed meat (per 1000 kcal)")
+ahei_meat_tbl %>% arrange(desc(redproc_per_1000)) %>% select(SEQN, redproc_per_1000) %>% head(10)
+
+
 report_component(ahei_meat_tbl, "ahei_redprocmeat", title = "Red + processed meat (per 1000 kcal)")
 
 
