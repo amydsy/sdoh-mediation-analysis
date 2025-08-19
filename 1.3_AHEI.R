@@ -182,6 +182,7 @@ ahei_veg <- ahei %>%
     ahei_veg = pmin(veg_per_1000kcal / 5, 1) * 10
   )
 
+summary(ahei_veg)
 # 2.2 WHOLE FRUIT --------------------------------------------------------
 ahei_fruit <- ahei %>%
   group_by(SEQN) %>%
@@ -195,7 +196,7 @@ ahei_fruit <- ahei %>%
     fruit_per_1000kcal = ifelse(fruit_per_1000kcal > 10, NA, fruit_per_1000kcal),
     ahei_fruit = pmin(fruit_per_1000kcal / 2, 1) * 10
   )
-
+summary(ahei_fruit)
 # 2.3 WHOLE GRAINS -------------------------------------------------------
 ahei_grain <- ahei %>%
   group_by(SEQN) %>%
@@ -211,6 +212,7 @@ ahei_grain <- ahei %>%
   )
 
 # 2.4 SSBs + FRUIT JUICE -------------------------------------------------
+# this might wrong check!!!!
 ahei_ssb <- ahei %>%
   group_by(SEQN) %>%
   summarise(
@@ -226,6 +228,7 @@ ahei_ssb <- ahei %>%
     )
   )
 
+summary(ahei_ssb)
 
 # 2.5 NUTS & LEGUMES ---------------------------------------------------
 ahei_nutslegumes <- ahei %>%
@@ -252,14 +255,14 @@ ahei_meat <- ahei %>%
     ahei_redprocmeat = (1 - ahei_redprocmeat) * 10
   )
 
-# 2.7 Trans fat (usually omitted or proxied) -----------------------------------
+# 2.7 Trans fat (omitted) -----------------------------------
 
 # 2.8 LONG-CHAIN OMEGA-3 (EPA+DHA) ---------------------------------------------
 
 ahei_longn3 <- ahei %>%
   group_by(SEQN) %>%
   summarise(
-    long_chain_n3 = sum(DR1IP204 + DR1IP225 + DR1IP205, na.rm = TRUE),  # grams/day
+    long_chain_n3 = sum( DR1IP225 + DR1IP205, na.rm = TRUE),  # grams/day # DR1IP204 
     .groups = "drop"
   ) %>%
   mutate(
@@ -267,6 +270,7 @@ ahei_longn3 <- ahei %>%
     ahei_longn3 = pmin(long_chain_n3 / 0.25, 1) * 10
   )
 
+summary(ahei_longn3)
 # --- 2.9 PUFAs (as % of energy) ---
 ahei_pufa <- ahei %>%
   group_by(SEQN) %>%
@@ -300,6 +304,8 @@ ahei_sodium <- ahei %>%
       TRUE ~ (2300 - sodium_per_1000kcal) / (2300 - 1000) * 10
     )
   )
+
+summary(ahei_sodium)
 
 # --- 2.11 ALCOHOL ---
 ahei_alcohol <- ahei %>%
@@ -346,11 +352,6 @@ ggplot(ahei_combined, aes(x = ahei_total)) +
     y = "Count"
   ) +
   theme_minimal()
-
-
-
-
-
 
 
 
