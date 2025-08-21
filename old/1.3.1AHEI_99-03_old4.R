@@ -346,7 +346,7 @@ iff_base <- iff_joined %>%
   )
 
 
-# 4.3.1 DEBUGed: Fruit flags & servings (keeps solids that are "packed in juice")-----
+##### DEBUG: Fruit flags & servings (keeps solids that are "packed in juice")-----
 fruit_flags <- iff_base %>%
   dplyr::mutate(
     is_juice    = stringr::str_detect(dl, stringr::regex("\\bjuice\\b", TRUE)),
@@ -415,7 +415,7 @@ fruit_person <- fruit_flags %>%
 
 
 
-# 4.3.2 DEBUGed: Vegetable flags & servings ------
+#####  DEBUG: Vegetable flags & servings ------
 veg_flags <- iff_base %>%
   dplyr::mutate(
     # FULL: veg + green salads (exclude pasta/egg/tuna/chicken/macaroni/potato salads)
@@ -475,202 +475,81 @@ veg_person <- veg_flags %>%
 # summary(veg_person$veg_cup_eq_iff)
 
 
-# 4.3.3 OTHER groups (SSB, meats, nuts/legumes, whole grains, alcohol)------
-
-# 4.3.4 SSB & 100% JUICE =================
-ssb_person <- iff_base %>%
-  mutate(
-    bev_core    = str_detect(dl, regex("soda|cola|soft\\s*drink|\\bpop\\b|lemonade|fruit\\s*(ade|drink|punch)|sports\\s*drink|energy\\s*drink|sweetened\\s*water|smoothie|frappuccino", TRUE)),
-    bev_diet    = str_detect(dl, regex("\\bdiet\\b|sugar[- ]?free|unsweetened|zero\\b|low\\s*cal", TRUE)),
-    bev_milkct  = str_detect(dl, regex("\\bmilk\\b|coffee|tea|cappuccino|latte|mocha|cocoa|hot\\s*chocolate", TRUE)),
-    bev_reduced = str_detect(dl, regex("reduced\\s*sugar|less\\s*sugar|lower\\s*sugar|50%\\s*less\\s*sugar|\\blight\\b", TRUE)),
-    
+#### OTHER groups (SSB, meats, nuts/legumes, whole grains, alcohol)------
+other_person <- iff_base %>%
+  dplyr::mutate(
+    # -- SSB & 100% juice --
+    bev_core    = stringr::str_detect(dl, stringr::regex("soda|cola|soft\\s*drink|\\bpop\\b|lemonade|fruit\\s*(ade|drink|punch)|sports\\s*drink|energy\\s*drink|sweetened\\s*water|smoothie|frappuccino", TRUE)),
+    bev_diet    = stringr::str_detect(dl, stringr::regex("\\bdiet\\b|sugar[- ]?free|unsweetened|zero\\b|low\\s*cal", TRUE)),
+    bev_milkct  = stringr::str_detect(dl, stringr::regex("\\bmilk\\b|coffee|tea|cappuccino|latte|mocha|cocoa|hot\\s*chocolate", TRUE)),
+    bev_reduced = stringr::str_detect(dl, stringr::regex("reduced\\s*sugar|less\\s*sugar|lower\\s*sugar|50%\\s*less\\s*sugar|\\blight\\b", TRUE)),
     ssb_full_flag = bev_core & !bev_diet & !bev_milkct & !bev_reduced,
     ssb_half_flag = bev_core & !bev_diet & !bev_milkct &  bev_reduced,
     
-    is_juice    = str_detect(dl, regex("\\bjuice\\b", TRUE)),
-    is_cocktail = str_detect(dl, regex("cocktail|\\bdrink\\b|beverage|ade\\b|punch\\b|nectar", TRUE)),
-    juice_pack_context = str_detect(dl, regex("juice\\s*pack(ed)?|packed\\s*in\\s*(its\\s*|own\\s*)?juice|in\\s*(its\\s*|own\\s*)?juice", TRUE)),
-    juice100_flag = is_juice & !juice_pack_context & !is_cocktail & !bev_diet & !bev_milkct
-  ) %>%
-  summarise(
-    ssb_serv_full     = sum((fl_oz/8) * as.numeric(ssb_full_flag), na.rm = TRUE),
-    ssb_serv_half     = sum((fl_oz/8) * as.numeric(ssb_half_flag), na.rm = TRUE),
-    ssb_serv          = ssb_serv_full + 0.5 * ssb_serv_half,
-    fruit_juice_serv  = sum((fl_oz/4) * as.numeric(juice100_flag), na.rm = TRUE),
-    ssb_juice_serv    = ssb_serv + fruit_juice_serv,
-    .by = c(SEQN, DAY, cycle)
-  )
-
-
-# 4.3.5 RED + PROCESSED MEAT =================
-
-meat_person <- iff_base %>%
-  mutate(
-    ##### helpers ----------
-    #dish_pat = "(?i)(sandwich|burger|on\\s*(a\\s*)?bun|wrap|pita|stew|with\\s*(starch(es)?|potato(es)?|rice|pasta|noodle(s)?|vegetable(s)?)|frozen|tv\\s*dinner|meal|soup|broth|stock)",
-    dish_pat = "(?i)(sandwich|burger|on\\s*(a\\s*)?bun|wrap|pita|stew|curry|chili|fried\\s*rice|stir[-\\s]
-    *fry|casserole|lasagna|meat\\s*sauce|with\\s*(starch(es)?|potato(es)?|rice|pasta|noodle(s)?|vegetable(s)?)
-    |frozen|tv\\s*dinner|meal|soup|broth|stock|taco(s)?|burrito(s)?
-    |quesadilla(s)?|enchilada(s)?|nacho(s)?|fajita(s)?|empanada(s)?
-    |arepa(s)?|gordita(s)?|pho|udon|soba|lo\\s*mein|chow\\s*mein|caldo\\s*de\\s*res)",
+    is_juice    = stringr::str_detect(dl, stringr::regex("\\bjuice\\b", TRUE)),
+    is_cocktail = stringr::str_detect(dl, stringr::regex("cocktail|\\bdrink\\b|beverage|ade\\b|punch\\b|nectar", TRUE)),
+    juice_pack_context = stringr::str_detect(dl, stringr::regex("juice\\s*pack(ed)?|packed\\s*in\\s*(its\\s*|own\\s*)?juice|in\\s*(its\\s*|own\\s*)?juice", TRUE)),
+    juice100_flag = is_juice & !juice_pack_context & !is_cocktail & !bev_diet & !bev_milkct,
     
-    baby_food_pat = "(?i)(\\b(baby|infant)\\s*food\\b|\\bbabyfood\\b|\\b(baby|infant)\\s*(jar|pouch)\\b)",
+    ##### -- RED / PROCESSED MEAT ------
+    ## 🔥🔥🔥🔥🔥🔥🔥
+    # ✅ inside mutate: use =
+    burger_beef = stringr::str_detect(dl, "\\b(cheese)?burger(s)?\\b") &
+      !stringr::str_detect(dl, "(veggie|plant|soy|black\\s*bean|impossible|beyond|turkey|chicken|fish|salmon)\\s*burger"),
     
-    liquid_mixed_pat = "(?i)\\b(broth|stock|bouillon|consomm[eé]|bone\\s*broth|base|concentrate)\\b",
+    beef_any  = stringr::str_detect(dl, "\\bbeef\\b|\\bhamburger\\b") | burger_beef,
+    beef_core = stringr::str_detect(dl, "beef\\s*(steak|rib|ribs|roast|ground|patty|patties|meatball|sirloin|ribeye|brisket)") |
+      stringr::str_detect(dl, "\\bhamburger\\s*patty\\b"),
+    beef_mix  = beef_any & stringr::str_detect(dl, "(sandwich|burger|on\\s*bun|wrap|pita|gravy|sauce|with\\s*(starch|potato|rice|pasta|noodle|vegetable)|frozen|tv\\s*dinner|meal|soup|broth|extract)"),
+    beef_excl = stringr::str_detect(dl, "beef\\s*bacon|frankfurter|wiener|hot\\s*dog|sausage\\b|luncheon|lunch\\s*meat|bologna|salami|pepperoni|potted\\s*meat|meat\\s*spread|spam|pastrami|corned\\s*beef"),
     
+    pork_any  = stringr::str_detect(dl, "\\bpork\\b|\\bham\\b|sparerib|spareribs"),
+    pork_core = stringr::str_detect(dl, "pork\\s*(chop|steak|cutlet|roast|loin|tenderloin|sparerib|spareribs)"),
+    pork_mix  = pork_any & stringr::str_detect(dl, "(sandwich|wrap|pita|gravy|sauce|with\\s*(starch|potato|rice|pasta|noodle|vegetable)|frozen|tv\\s*dinner|meal|soup|broth|extract)"),
+    pork_excl = stringr::str_detect(dl, "canadian\\s*bacon|\\bbacon\\b|salt\\s*pork|pork\\s*skin|frankfurter|wiener|hot\\s*dog|sausage\\b|luncheon|lunch\\s*meat|bologna|salami|pepperoni|potted\\s*meat|meat\\s*spread|spam"),
     
-    # GUARD 1 (fixed): liquid-only = broth/stock/bouillon/extract ONLY (no sauce/gravy)
-    liquid_tokens = "(?i)\\b(broth|stock|bouillon|extract)\\b",
-    # GUARD 2: keep sliced/diced/chopped as chunky
-    chunky_tokens = "(?i)(chunks?|pieces?|strips?|shreds?|cubes?|ground|meatballs?|patty|patties|ribs?|slices?|sliced|diced|chopped|minced)",
-    # GUARD 3: flavor-only only for instant/packet soups/noodles
-    flavor_env   = "(?i)(ramen|instant\\s*noodles?|cup\\s*noodles?|soup\\s*mix|instant\\s*soup)",
-    flavor_words = "(?i)\\b(beef|pork|ham)\\s*flavo(u)?r(ed)?\\b|\\bflavor\\s*packet\\b|\\bseasoning\\b",
+    beef_full = beef_core & !beef_mix & !beef_excl,
+    beef_half = beef_mix  & !beef_excl,
+    pork_full = pork_core & !pork_mix & !pork_excl,
+    pork_half = pork_mix  & !pork_excl,
     
-    carrier_pat = "(?i)(sandwich|sub|hoagie|roll|bun|wrap|pita|bagel|croissant|biscuit|english\\s*muffin|ciabatta|panini|torta|hero|grinder|po[-\\s]*boy|toast)",
-    
-    ####---------- burgers ----------
-    burger_beef = str_detect(dl, "(?i)\\b(cheese[-\\s]*)?burger(s)?\\b") &
-      !str_detect(dl, "(?i)(vegan|veggie|plant[-\\s]*based|soy|black[-\\s]*bean|impossible|beyond|turkey|chicken|fish|salmon).*burger"),
-    
-    proc_addon_pat = "(?i)\\b(ham|bacon|canadian\\s*bacon|pastrami|corned\\s*beef|bologna|baloney|salami|pepperoni|liverwurst|mortadella|prosciutto|pancetta|guanciale|capicola|coppa|deli\\s*meat|cold[-\\s]*cut(s)?)\\b",
-    burger_proc = burger_beef & str_detect(dl, proc_addon_pat),
-    
-    #### ---------- beef ----------
-    beef_any  = str_detect(dl, "(?i)\\bbeef\\b|\\bhamburger\\b") | burger_beef,
-    
-    beef_core = str_detect(
+    proc_core = stringr::str_detect(
       dl,
-      "(?i)\\bbeef\\s*(steak|rib(s)?|roast|ground|patty|patties|meatball|sirloin|ribeye|brisket)\\b|\\bhamburger\\s*patty\\b|\\broast\\s*beef\\b|\\b(sirloin|ribeye|t[-\\s]*bone|porterhouse|filet\\s*mignon|prime\\s*rib|short\\s*rib(s)?)\\b"
-    ) |
-      ( str_detect(dl, "(?i)\\bsteaks?\\b") &
-          !str_detect(dl, "(?i)\\b(tuna|salmon|ahi|swordfish|mahi|fish|cauliflower|portobello|mushroom|tofu|seitan|tempeh|pork|chicken|turkey)\\b") ),
-    
-    beef_alias_mix = str_detect(
-      dl, "(?i)\\b(cheesesteak|philly\\s*cheesesteak|italian\\s*beef|bolognese|ragu|ragù|meatloaf|sloppy\\s*joe|barbacoa|carne\\s*asada|pepper\\s*steak|burnt\\s*ends|steak\\s*(and|&)\\s*cheese)\\b"
-    ),
-    
-    # beef_liquid_only = beef_any & str_detect(dl, liquid_tokens) & !str_detect(dl, chunky_tokens),
-    beef_flavor_only = beef_any & str_detect(dl, flavor_env) & str_detect(dl, flavor_words),
-    
-    # beef_mix  = (beef_any | beef_alias_mix) &
-    #  ( str_detect(dl, dish_pat) | str_detect(dl, baby_food_pat) ) &
-    # !beef_flavor_only & !(burger_beef & burger_proc),
-    
-    beef_mix  = ( (beef_any | beef_alias_mix) &
-                    ( str_detect(dl, dish_pat) | str_detect(dl, baby_food_pat) ) ) |
-      ( beef_any & str_detect(dl, liquid_mixed_pat) ),
-    
-    beef_mix  = beef_mix & !beef_flavor_only & !(burger_beef & burger_proc),
-    
-    #### ---------- pork ----------
-    pork_any  = str_detect(dl, "(?i)\\bpork\\b|\\bham\\b|\\bsparerib(s)?\\b") |
-      str_detect(dl, "(?i)\\b(carnitas|al\\s*pastor|char\\s*siu|kalua\\s*pork|lechon|porchetta|chashu)\\b"),
-    
-    pork_core = str_detect(
-      dl,
-      "(?i)\\b(roast\\s*pork|pork\\s*(chops?|steak|cutlet|roast|loin|tenderloin|sparerib(s)?|rib(s)?|belly|shoulder|butt|pulled))\\b|\\b(tonkatsu|katsu|katsudon|porchetta|chashu)\\b"
-    ) |
-      ( str_detect(dl, "(?i)\\b(ribs?|spare\\s*ribs?)\\b") &
-          !str_detect(dl, "(?i)\\b(beef|lamb|veal|goat|chicken|turkey|fish|seafood)\\b") ),
-    
-    # pork_liquid_only = pork_any & str_detect(dl, liquid_tokens) & !str_detect(dl, chunky_tokens),
-    pork_flavor_only = pork_any & str_detect(dl, flavor_env) & str_detect(dl, flavor_words),
-    
-    #pork_mix  = pork_any &
-    #  ( str_detect(dl, dish_pat) | str_detect(dl, baby_food_pat) ) &
-    #  !pork_flavor_only & !(burger_beef & burger_proc),
-    
-    pork_mix  = ( pork_any &
-                    ( str_detect(dl, dish_pat) | str_detect(dl, baby_food_pat) ) ) |
-      ( pork_any & str_detect(dl, liquid_mixed_pat) ),
-    
-    pork_mix  = pork_mix & !pork_flavor_only & !(burger_beef & burger_proc),
-    
-    ####---------- other red meats ----------
-    other_red_any  = str_detect(dl, "(?i)\\b(lamb|mutton|veal|goat)\\b") |
-      ( str_detect(dl, "(?i)\\b(gyro|doner|shawarma|souvlaki)\\b") &
-          !str_detect(dl, "(?i)\\b(chicken|turkey)\\b") ),
-    other_red_core = str_detect(dl, "(?i)\\b(lamb|mutton|veal|goat)\\s*(chops?|steak|roast|rib(s)?|shank|loin)\\b"),
-    other_red_mix  = other_red_any & str_detect(dl, dish_pat),
-    
-    ##### ---------- processed ----------
-    named_proc_sandwich = "(?i)\\b(BLT|Reuben|Cuban|Italian\\s*sub|muff(u|a)letta|b(á|a)nh\\s*m[ií]|banh\\s*mi|club\\s*sandwich)\\b",
-    
-    proc_core = str_detect(
-      dl,
-      paste0("(?i)",
-             "\\bham\\b|canadian\\s*bacon|\\bbacon\\b|bacon\\s*bits?|salt\\s*pork|pork\\s*skin|",
-             "\\bfrankfurters?\\b|\\bfranks?\\b|\\bwieners?\\b|\\bhot[-\\s]*dogs?\\b|\\bhotdogs?\\b|",
-             "\\bsausages?\\b|\\bbratwursts?\\b|\\bkielbasa(s)?\\b|\\bandouille\\b|\\blinguic[aá]\\b|\\blonganiza\\b|\\bsalchicha(s)?\\b|",
-             "\\bsummer\\s*sausage\\b|\\bvienna\\s*sausage(s)?\\b|\\b(beef|snack)\\s*stick(s)?\\b|\\bslim\\s*jim(s)?\\b|",
-             "luncheon\\s*meat|lunch\\s*meat(s)?|cold[-\\s]*cut(s)?|deli\\s*meat(s)?|\\bluncheon\\s*loaf\\b|\\bpimento\\s*loaf\\b|\\bolive\\s*loaf\\b|",
-             "\\bbologna\\b|\\bbaloney\\b|\\bsalami\\b|\\bpepperoni\\b|\\bpastrami\\b|corned\\s*beef\\b|\\bliverwurst\\b|",
-             "potted\\s*meat|meat\\s*spread|\\bspam\\b|\\bscrapple\\b|\\bprosciutto\\b|\\bpancetta\\b|\\bguanciale\\b|\\bcapicola\\b|\\bcoppa\\b|\\bmortadella\\b|\\bjerky\\b|",
-             "\\bpork\\s*roll\\b|\\btaylor\\s*ham\\b|\\blap\\s*che(?:o|o)ng\\b|\\blap\\s*chong\\b|",
-             # new processed “salad/loaf/deviled”
-             "\\bdeviled\\s*ham\\b|\\bham\\s*salad\\b|\\bcorn\\s*dog(s)?\\b"
+      paste0(
+        "\\bham\\b|",
+        "canadian\\s*bacon|\\bbacon\\b|salt\\s*pork|pork\\s*skin|",
+        "(frankfurter(s)?|frank(s)?|wiener(s)?|hot\\s*dog(s)?)|",
+        "sausage(s)?\\b|bratwurst|kielbasa|chorizo|",
+        "luncheon\\s*meat|lunch\\s*meat(s)?|cold[-\\s]*cut(s)?|deli\\s*meat(s)?|",
+        "bologna|baloney|salami|pepperoni|pastrami|corned\\s*beef|liverwurst|",
+        "potted\\s*meat|meat\\s*spread|\\bspam\\b|scrapple"
       )
-    ) |
-      str_detect(dl, "(?i)\\b(beef|pork|turkey|chicken)\\s+franks?\\b") |
-      str_detect(dl, named_proc_sandwich),
-    
-    proc_half = str_detect(
+    ),
+    proc_half = stringr::str_detect(
       dl,
-      paste0(carrier_pat, ".*(frankfurters?|hot\\s*dogs?|wieners?|ham|bacon|bologna|salami|pepperoni|pastrami|corned\\s*beef|luncheon|lunch\\s*meat|cold[-\\s]*cut|deli\\s*meat|potted\\s*meat)")
+      "(sandwich|sub|hoagie|roll|bun|wrap|pita).*(frankfurter|hot\\s*dog|wiener|ham|bologna|salami|pepperoni|pastrami|corned\\s*beef|luncheon|lunch\\s*meat|cold[-\\s]*cut|deli\\s*meat|potted\\s*meat)"
     ) & !proc_core,
     
-    # charcuterie / salumi boards and bacon-wrapped → processed-half
-    proc_half = proc_half | ( str_detect(dl, "(?i)\\b(charcuterie|antipasto(\\s*platter)?|salumi)\\b") & !proc_core ),
-    proc_half = proc_half | str_detect(dl, "(?i)\\bbacon[-\\s]*wrapped\\b"),
+    # exclude burger rows from processed (sequentially evaluated in mutate)
+    proc_core = proc_core & !burger_beef,
+    proc_half = proc_half & !burger_beef,
     
-    # burgers → processed if they include processed add-ons
-    proc_core = (proc_core & !burger_beef) | (burger_beef & burger_proc),
-    proc_half = (proc_half & !burger_beef),
-    proc_any  = proc_core | proc_half,
     
-    # final red meat flags (exclude processed to avoid double count)
-    beef_full = beef_core & !beef_mix & !proc_any,
-    beef_half = beef_mix  & !proc_any,
-    pork_full = pork_core & !pork_mix & !proc_any,
-    pork_half = pork_mix  & !proc_any,
-    other_red_full = other_red_core & !other_red_mix & !proc_any,
-    other_red_half = other_red_mix  & !proc_any
-  ) %>%
-  summarise(
-    # beef/pork
-    beef_serv_fw = sum(ifelse(beef_full, g/100, 0), na.rm = TRUE),
-    beef_serv_hw = sum(ifelse(beef_half, (g/100)*0.5, 0), na.rm = TRUE),
-    pork_serv_fw = sum(ifelse(pork_full, g/100, 0), na.rm = TRUE),
-    pork_serv_hw = sum(ifelse(pork_half, (g/100)*0.5, 0), na.rm = TRUE),
     
-    # ⭐ NEW: other red meats (lamb/veal/goat)
-    other_red_serv_fw = sum(ifelse(other_red_full, g/100, 0), na.rm = TRUE),
-    other_red_serv_hw = sum(ifelse(other_red_half, (g/100)*0.5, 0), na.rm = TRUE),
+   # miss_burgers <- iff_base %>%
+   #   dplyr::filter(stringr::str_detect(dl, "\\b(cheeseburger|burger)\\b") &
+   #                   !stringr::str_detect(dl, "\\bhamburger\\b|\\bbeef\\b"))
+   # nrow(miss_burgers); head(miss_burgers$DESC, 20)
     
-    # total red = beef + pork + other red
-    red_serv = beef_serv_fw + beef_serv_hw +
-      pork_serv_fw + pork_serv_hw +
-      other_red_serv_fw + other_red_serv_hw,
     
-    # processed (unchanged)
-    proc_serv_fw = sum(ifelse(proc_core, g/100, 0), na.rm = TRUE),
-    proc_serv_hw = sum(ifelse(proc_half, (g/100)*0.5, 0), na.rm = TRUE),
     
-    # red + processed
-    redproc_serv_iff = red_serv + proc_serv_fw + proc_serv_hw,
     
-    .by = c(SEQN, DAY, cycle)
-  )
-
-
-# 4.3.6 NUTS & LEGUMES =================
-nls_person <- iff_base %>%
-  mutate(
-    nls_full = str_detect(
+    
+    
+    # -- NUTS & LEGUMES --
+    nls_full = stringr::str_detect(
       dl,
-      regex(
+      stringr::regex(
         paste0(
           "\\b(black|pinto|kidney|navy|refried|garbanzo|chickpea|white|great northern|cannellini)\\b.*bean|",
           "\\bdried\\s*bean(s)?\\b|\\bbaked\\s*bean(s)?\\b|",
@@ -680,16 +559,53 @@ nls_person <- iff_base %>%
         ), TRUE
       )
     ),
-    nls_half = str_detect(dl, regex("(frozen|tv\\s*dinner|plate\\s*meal).*(bean|lentil|pea)|bean.*soup|lentil.*soup|pea.*soup|baby\\s*food.*(bean|lentil|pea)", TRUE)),
-    nls_excl = str_detect(dl, regex("soy\\b|tofu|tempeh|textured\\s*veg|meat\\s*substitute|veggie\\s*burger|nut\\s*butter|coconut\\s*(milk|beverage)|carob", TRUE)),
-    nb_full  = str_detect(dl, regex("(peanut|almond|cashew|hazelnut|sunflower)\\s*butter\\b", TRUE)),
-    nb_half  = str_detect(dl, regex("(peanut|nut)\\s*butter\\s*(and\\s*jelly|&\\s*jelly)|nut\\s*butter\\s*sandwich", TRUE)),
-    nb_excl  = str_detect(dl, regex("nut\\s*gravy|peanut\\s*sauce", TRUE)),
-    tofu_full = str_detect(dl, regex("tofu|soy\\s*bean\\b|soybeans\\b|soy\\s*nuts\\b", TRUE)),
-    tofu_half = str_detect(dl, regex("soy\\s*yogurt|soy\\s*dessert|tofu\\s*soup|tofu.*(mix|dish)", TRUE)),
-    soymilk_full = str_detect(dl, regex("\\bsoy\\s*(milk|drink|beverage)\\b", TRUE))
+    nls_half = stringr::str_detect(dl, stringr::regex("(frozen|tv\\s*dinner|plate\\s*meal).*(bean|lentil|pea)|bean.*soup|lentil.*soup|pea.*soup|baby\\s*food.*(bean|lentil|pea)", TRUE)),
+    nls_excl = stringr::str_detect(dl, stringr::regex("soy\\b|tofu|tempeh|textured\\s*veg|meat\\s*substitute|veggie\\s*burger|nut\\s*butter|coconut\\s*(milk|beverage)|carob", TRUE)),
+    nb_full  = stringr::str_detect(dl, stringr::regex("(peanut|almond|cashew|hazelnut|sunflower)\\s*butter\\b", TRUE)),
+    nb_half  = stringr::str_detect(dl, stringr::regex("(peanut|nut)\\s*butter\\s*(and\\s*jelly|&\\s*jelly)|nut\\s*butter\\s*sandwich", TRUE)),
+    nb_excl  = stringr::str_detect(dl, stringr::regex("nut\\s*gravy|peanut\\s*sauce", TRUE)),
+    tofu_full = stringr::str_detect(dl, stringr::regex("tofu|soy\\s*bean\\b|soybeans\\b|soy\\s*nuts\\b", TRUE)),
+    tofu_half = stringr::str_detect(dl, stringr::regex("soy\\s*yogurt|soy\\s*dessert|tofu\\s*soup|tofu.*(mix|dish)", TRUE)),
+    soymilk_full = stringr::str_detect(dl, stringr::regex("\\bsoy\\s*(milk|drink|beverage)\\b", TRUE)),
+    
+    # -- WHOLE GRAINS --
+    wg_kw = stringr::str_detect(
+      dl,
+      stringr::regex(
+        paste0(
+          "100%\\s*whole|\\bwhole\\s*(wheat|grain|rye|oat)|\\bwholegrain\\b|",
+          "oatmeal|rolled\\s*oats|steel[- ]cut\\s*oats|bran\\b|bran\\s*flakes|",
+          "brown\\s*rice\\b|popcorn\\b|bulgur|quinoa|farro|barley\\b|",
+          "(whole|wholegrain).*\\b(bread|tortilla|pita|pasta|noodle|cracker|cereal)\\b"
+        ), TRUE
+      )
+    ),
+    
+    # -- Alcohol (QC) --
+    beer_full    = stringr::str_detect(dl, "\\b(beer|lager|ale|ipa|stout|porter|pilsner)\\b") & !stringr::str_detect(dl,"non[- ]?alcoholic|near\\s*beer|root\\s*beer|ginger\\s*beer"),
+    wine_full    = stringr::str_detect(dl, "\\b(wine|merlot|cabernet|pinot|chardonnay|riesling|zinfandel|sauvignon)\\b") & !stringr::str_detect(dl,"cooking|non[- ]?alcoholic"),
+    liq_full     = stringr::str_detect(dl, "whisk(e)?y|bourbon|scotch|vodka|rum|gin|tequila|brandy|cognac|liqueur") & !stringr::str_detect(dl,"non[- ]?alcoholic"),
+    alc_cocktail = stringr::str_detect(dl, "cocktail|mixed\\s*drink|margarita|mojito|martini|bloody\\s*mary|long\\s*island|cosmopolitan|daiquiri|pi[nn]a\\s*colada|sangria|spritzer|michelada|shandy")
   ) %>%
-  summarise(
+  dplyr::summarise(
+    # SSB + 100% juice
+    ssb_serv_full   = sum((fl_oz/8) * as.numeric(ssb_full_flag), na.rm = TRUE),
+    ssb_serv_half   = sum((fl_oz/8) * as.numeric(ssb_half_flag), na.rm = TRUE),
+    ssb_serv        = ssb_serv_full + 0.5 * ssb_serv_half,
+    fruit_juice_serv= sum((fl_oz/4) * as.numeric(juice100_flag), na.rm = TRUE),
+    ssb_juice_serv  = ssb_serv + fruit_juice_serv,
+    
+    # Red + processed meat
+    beef_serv_fw = sum(ifelse(beef_full, g/100, 0), na.rm = TRUE),
+    beef_serv_hw = sum(ifelse(beef_half, (g/100)*0.5, 0), na.rm = TRUE),
+    pork_serv_fw = sum(ifelse(pork_full, g/100, 0), na.rm = TRUE),
+    pork_serv_hw = sum(ifelse(pork_half, (g/100)*0.5, 0), na.rm = TRUE),
+    red_serv     = beef_serv_fw + beef_serv_hw + pork_serv_fw + pork_serv_hw,
+    proc_serv_fw = sum(ifelse(proc_core, g/100, 0), na.rm = TRUE),
+    proc_serv_hw = sum(ifelse(proc_half, (g/100)*0.5, 0), na.rm = TRUE),
+    redproc_serv_iff = red_serv + proc_serv_fw + proc_serv_hw,
+    
+    # Nuts & legumes
     nls_serv_full = sum(ifelse(nls_full & !nls_excl, g/50, 0), na.rm = TRUE),
     nls_serv_half = sum(ifelse(nls_half & !nls_excl, (g/50)*0.5, 0), na.rm = TRUE),
     nb_serv_full  = sum(ifelse(nb_full  & !nb_excl,  g/32, 0), na.rm = TRUE),
@@ -701,83 +617,41 @@ nls_person <- iff_base %>%
       nb_serv_full  + nb_serv_half  +
       tofu_serv_full + tofu_serv_half +
       soymilk_serv_full,
-    .by = c(SEQN, DAY, cycle)
-  )
-
-
-# 4.3.7 WHOLE GRAINS =================
-wg_person <- iff_base %>%
-  mutate(
-    wg_kw = str_detect(
-      dl,
-      regex(
-        paste0(
-          "100%\\s*whole|\\bwhole\\s*(wheat|grain|rye|oat)|\\bwholegrain\\b|",
-          "oatmeal|rolled\\s*oats|steel[- ]cut\\s*oats|bran\\b|bran\\s*flakes|",
-          "brown\\s*rice\\b|popcorn\\b|bulgur|quinoa|farro|barley\\b|",
-          "(whole|wholegrain).*\\b(bread|tortilla|pita|pasta|noodle|cracker|cereal)\\b"
-        ), TRUE
-      )
-    )
-  ) %>%
-  summarise(
+    
+    # Whole grains (grams)
     wholegr_g_iff = sum(ifelse(wg_kw, g, 0), na.rm = TRUE),
-    .by = c(SEQN, DAY, cycle)
-  )
-
-
-# 4.3.8 ALCOHOL =================
-alc_person <- iff_base %>%
-  mutate(
-    beer_full    = str_detect(dl, "\\b(beer|lager|ale|ipa|stout|porter|pilsner)\\b") & !str_detect(dl,"non[- ]?alcoholic|near\\s*beer|root\\s*beer|ginger\\s*beer"),
-    wine_full    = str_detect(dl, "\\b(wine|merlot|cabernet|pinot|chardonnay|riesling|zinfandel|sauvignon)\\b") & !str_detect(dl,"cooking|non[- ]?alcoholic"),
-    liq_full     = str_detect(dl, "whisk(e)?y|bourbon|scotch|vodka|rum|gin|tequila|brandy|cognac|liqueur") & !str_detect(dl,"non[- ]?alcoholic"),
-    alc_cocktail = str_detect(dl, "cocktail|mixed\\s*drink|margarita|mojito|martini|bloody\\s*mary|long\\s*island|cosmopolitan|daiquiri|pi[nn]a\\s*colada|sangria|spritzer|michelada|shandy")
-  ) %>%
-  summarise(
+    
+    # Alcohol (QC only)
     alc_beer_serv_full = sum(ifelse(beer_full,  g/340.2,  0), na.rm = TRUE),
     alc_wine_serv_full = sum(ifelse(wine_full,  g/141.75, 0), na.rm = TRUE),
     alc_liq_serv_full  = sum(ifelse(liq_full,   g/42.53,  0), na.rm = TRUE),
     alc_cocktail_half  = sum(ifelse(alc_cocktail, (g/42.53)*0.5, 0), na.rm = TRUE),
     alc_drinks_serv    = alc_beer_serv_full + alc_wine_serv_full + alc_liq_serv_full + alc_cocktail_half,
+    
     .by = c(SEQN, DAY, cycle)
   )
 
 
-# 4.3.9 JOIN THE SECTIONS + VEG/FRUIT =================
-# join the 5 section tables first
-other_person <- meat_person %>%
-  full_join(ssb_person, by = c("SEQN","DAY","cycle")) %>%
-  full_join(nls_person, by = c("SEQN","DAY","cycle")) %>%
-  full_join(wg_person,  by = c("SEQN","DAY","cycle")) %>%
-  full_join(alc_person, by = c("SEQN","DAY","cycle"))
-
-# now add veg & fruit debug tables as you wanted
+####  FINAL: join debug fruit & veg into the combined IFF servings ----
 iff_servings <- other_person %>%
-  left_join(veg_person,   by = c("SEQN","DAY","cycle"), suffix = c("", "_vegdbg")) %>%
-  left_join(fruit_person, by = c("SEQN","DAY","cycle"), suffix = c("", "_fruitdbg")) %>%
-  mutate(
-    # prefer other_person’s juice unless you want the fruit debug’s version
-    fruit_juice_serv = coalesce(fruit_juice_serv, fruit_juice_serv_fruitdbg)
+  dplyr::left_join(veg_person,   by = c("SEQN","DAY","cycle"), suffix = c("", "_vegdbg")) %>%
+  dplyr::left_join(fruit_person, by = c("SEQN","DAY","cycle"), suffix = c("", "_fruitdbg")) %>%
+  dplyr::mutate(
+    # choose the beverage juice from other_person unless you prefer fruit debug’s version
+    fruit_juice_serv = dplyr::coalesce(fruit_juice_serv, fruit_juice_serv_fruitdbg)
   )
 
-# final per-SEQN totals
+# then summarise exactly as you tried
 iff_servings_seqn <- iff_servings %>%
-  group_by(SEQN) %>%
-  summarise(
-    across(
+  dplyr::group_by(SEQN) %>%
+  dplyr::summarise(
+    dplyr::across(
       c(veg_cup_eq_iff, fruit_cup_eq_iff, ssb_serv, fruit_juice_serv, ssb_juice_serv,
         redproc_serv_iff, nuts_legumes_serv_iff, wholegr_g_iff, alc_drinks_serv),
       ~ sum(.x, na.rm = TRUE)
     ),
     .groups = "drop"
   )
-
-
-summary(iff_servings_seqn$redproc_serv_iff)
-iff_servings_seqn$veg_cup_eq_iff
-
-
 
 
 
@@ -877,6 +751,252 @@ ahei_input_mped <- mped_9904_person %>%
 # quick sanity (should be one row per SEQN)
 cat("ahei_input_mped rows:", nrow(ahei_input_mped),
     " unique SEQN:", dplyr::n_distinct(ahei_input_mped$SEQN), "\n")
+
+
+
+
+
+# 6) AHEI scoring — NOT energy-adjusted  — one component at a time =========
+
+lin_pos <- function(x, min0, max10) ifelse(is.na(x), NA_real_, pmax(0, pmin(1, (x - min0)/(max10 - min0))) * 10)
+lin_rev <- function(x, min10, max0) ifelse(is.na(x), NA_real_, pmax(0, pmin(1, (max0 - x)/(max0 - min10))) * 10)
+
+# Weighted mean helper (ignores NA in either x or w)
+wmean <- function(x, w) {
+  i <- !is.na(x) & !is.na(w)
+  if (!any(i)) return(NA_real_)
+  sum(x[i] * w[i]) / sum(w[i])
+}
+
+# Pretty reporter for a single component
+report_component <- function(df, score_col, wt_col = "WTDRD1", title = NULL) {
+  sc <- df[[score_col]]
+  wt <- df[[wt_col]]
+  wt6 <- wt / 3  # 6-yr pooled
+  
+  if (!is.null(title)) cat("\n---", title, "---\n")
+  print(summary(sc))
+  cat("Mean (unweighted):", mean(sc, na.rm = TRUE), "\n")
+  cat("Mean (WTDRD1):    ", wmean(sc, wt), "\n")
+  cat("Mean (WTDRD1/3):  ", wmean(sc, wt6), "\n")
+}
+
+##### 6.1 Vegetables 
+ahei_veg_tbl <- ahei_input_mped %>%
+  transmute(
+    SEQN, WTDRD1,
+    veg_serv   = ifelse(is.na(veg_cup_eq_final), NA_real_, veg_cup_eq_final ),  
+    ahei_veg   = lin_pos(veg_serv, 0, 5)
+  )
+report_component(ahei_veg_tbl, "ahei_veg", title = "Vegetables")
+
+##### 6.2 Fruit 
+ahei_fruit_tbl <- ahei_input_mped %>%
+  transmute(
+    SEQN, WTDRD1,
+    fruit_serv = ifelse(is.na(fruit_cup_eq_final), NA_real_, fruit_cup_eq_final / 0.5),  # 0.5 cup = 1 serving
+    ahei_fruit = lin_pos(fruit_serv, 0, 4)
+  )
+report_component(ahei_fruit_tbl, "ahei_fruit", title = "Fruit")
+
+# ---------------- 6.3 Whole grains 
+ahei_grain_tbl <- ahei_input_mped %>%
+  transmute(
+    SEQN, WTDRD1, RIAGENDR,
+    max_wholegr = case_when(RIAGENDR == 2 ~ 75,   # women
+                            RIAGENDR == 1 ~ 90,   # men
+                            TRUE          ~ NA_real_),
+    ahei_wholegrains = ifelse(is.na(wholegr_g_final) | is.na(max_wholegr),
+                              NA_real_,
+                              pmin(wholegr_g_final / max_wholegr, 1) * 10)
+  )
+report_component(ahei_grain_tbl, "ahei_wholegrains", title = "Whole grains")
+
+# ---------------- 6.4 SSB + 100% fruit juice 
+ahei_ssb_tbl <- ahei_input_mped %>%
+  transmute(
+    SEQN, WTDRD1,
+    ahei_ssb = lin_rev(ssb_juice_serv, 0, 1)   # 0–≥1 servings/day (8 oz SSB, 4 oz 100% juice)
+  )
+report_component(ahei_ssb_tbl, "ahei_ssb", title = "SSB + 100% juice")
+
+# ---------------- 6.5 Nuts & legumes 
+ahei_nutsleg_tbl <- ahei_input_mped %>%
+  transmute(
+    SEQN, WTDRD1,
+    ahei_nutslegumes = lin_pos(nuts_legumes_serv_final, 0, 1)  # servings/day
+  )
+report_component(ahei_nutsleg_tbl, "ahei_nutslegumes", title = "Nuts & legumes")
+
+# ---------------- 6.6 Red + processed meat 
+ahei_meat_tbl <- ahei_input_mped %>%
+  transmute(
+    SEQN, WTDRD1,
+    ahei_redprocmeat = lin_rev(redproc_serv_final, 0, 1.5)    # servings/day
+  )
+report_component(ahei_meat_tbl, "ahei_redprocmeat", title = "Red + processed meat")
+
+# ---------------- 6.7 Long-chain n-3 (EPA + DHA) 
+ahei_longn3_tbl <- ahei_input_mped %>%
+  transmute(
+    SEQN, WTDRD1, epa_g, dha_g,
+    lc_n3_mg = ifelse(is.na(epa_g) & is.na(dha_g),
+                      NA_real_,
+                      (ifelse(is.na(epa_g), 0, epa_g) + ifelse(is.na(dha_g), 0, dha_g)) * 1000),
+    ahei_longn3 = lin_pos(lc_n3_mg, 0, 250)
+  )
+report_component(ahei_longn3_tbl, "ahei_longn3", title = "Long-chain n-3 (EPA+DHA)")
+
+# ---------------- 6.8 PUFA % energy 
+ahei_pufa_tbl <- ahei_input_mped %>%
+  transmute(
+    SEQN, WTDRD1, pufa_g, energy_kcal,
+    pufa_energy_pct = ifelse(is.na(pufa_g) | is.na(energy_kcal), NA_real_, (pufa_g * 9) / energy_kcal * 100),
+    ahei_pufa = case_when(
+      is.na(pufa_energy_pct) ~ NA_real_,
+      pufa_energy_pct <= 2   ~ 0,
+      pufa_energy_pct >= 10  ~ 10,
+      TRUE ~ (pufa_energy_pct - 2) / (10 - 2) * 10
+    )
+  )
+report_component(ahei_pufa_tbl, "ahei_pufa", title = "PUFA % energy")
+
+# ---------------- 6.9 Alcohol 
+ahei_alcohol_tbl <- ahei_input_mped %>%
+  transmute(
+    SEQN, WTDRD1, RIAGENDR, alcohol_g,
+    ahei_alcohol = case_when(
+      is.na(alcohol_g) | is.na(RIAGENDR) ~ NA_real_,
+      # Women
+      RIAGENDR == 2 & alcohol_g <= 0                    ~ 0,
+      RIAGENDR == 2 & alcohol_g > 0  & alcohol_g < 7    ~ (alcohol_g / 7) * 10,
+      RIAGENDR == 2 & alcohol_g >= 7  & alcohol_g <= 21 ~ 10,
+      RIAGENDR == 2 & alcohol_g > 21 & alcohol_g < 35   ~ ((35 - alcohol_g) / (35 - 21)) * 10,
+      RIAGENDR == 2 & alcohol_g >= 35                   ~ 0,
+      # Men
+      RIAGENDR == 1 & alcohol_g <= 0                    ~ 0,
+      RIAGENDR == 1 & alcohol_g > 0  & alcohol_g < 7    ~ (alcohol_g / 7) * 10,
+      RIAGENDR == 1 & alcohol_g >= 7  & alcohol_g <= 28 ~ 10,
+      RIAGENDR == 1 & alcohol_g > 28 & alcohol_g < 49   ~ ((49 - alcohol_g) / (49 - 28)) * 10,
+      RIAGENDR == 1 & alcohol_g >= 49                   ~ 0
+    )
+  )
+report_component(ahei_alcohol_tbl, "ahei_alcohol", title = "Alcohol")
+
+ahei_input_mped$alcohol_g
+
+# ---- 6.10) Sodium — energy-adjusted & outlier-handled (AHEI decile scoring) 
+# Approach:
+# 1) Compute sodium density (mg / 1000 kcal).
+# 2) Filter implausible energy days, then winsorize sodium density at weighted 0.5% / 99.5%.
+# 3) Compute weighted deciles on the winsorized density.
+# 4) Assign 10..0 points by decile (lower sodium density = better).
+#    (Also computes a continuous 10↘0 score between Q10 and Q90 for sensitivity checks.)
+
+# --- helper: weighted quantiles (no external packages)
+wtd_quantile <- function(x, w, probs = seq(0.1, 0.9, 0.1)) {
+  ok <- is.finite(x) & is.finite(w) & w > 0
+  if (!any(ok)) return(rep(NA_real_, length(probs)))
+  x <- x[ok]; w <- w[ok]
+  o <- order(x); x <- x[o]; w <- w[o]
+  cw <- cumsum(w) / sum(w)
+  sapply(probs, function(p) x[which(cw >= p)[1]])
+}
+
+# --- choose weights (Day 1)
+wt_vec <- if ("WTDRD1" %in% names(ahei_input_mped)) ahei_input_mped$WTDRD1 else rep(1, nrow(ahei_input_mped))
+
+# --- base with density; drop obvious bad energy days (adjust bounds if desired)
+sod_base <- ahei_input_mped %>%
+  transmute(
+    SEQN, sodium_mg, energy_kcal, WTDRD1 = wt_vec
+  ) %>%
+  filter(!is.na(sodium_mg), !is.na(energy_kcal), energy_kcal > 0) %>%
+  # Exclude implausible Day-1 energy recalls (tune these if your SOP differs)
+  filter(energy_kcal >= 500, energy_kcal <= 6000) %>%
+  mutate(
+    sod_den = sodium_mg / (energy_kcal / 1000)    # mg per 1000 kcal
+  )
+
+# --- winsorize sodium density at weighted 0.5% and 99.5% to tame outliers
+TRIM_P <- 0.005
+trim_lo <- wtd_quantile(sod_base$sod_den, sod_base$WTDRD1, probs = TRIM_P)
+trim_hi <- wtd_quantile(sod_base$sod_den, sod_base$WTDRD1, probs = 1 - TRIM_P)
+sod_base <- sod_base %>%
+  mutate(sod_den_w = pmin(pmax(sod_den, trim_lo), trim_hi))
+
+cat("Sodium density (mg/1000 kcal) winsorization bounds:\n")
+print(round(c(lo = trim_lo, hi = trim_hi), 2))
+
+# --- weighted deciles on winsorized density
+sod_dec <- wtd_quantile(sod_base$sod_den_w, sod_base$WTDRD1, probs = seq(0.1, 0.9, 0.1))
+names(sod_dec) <- paste0("Q", seq(10, 90, 10))
+cat("AHEI sodium density deciles (mg/1000 kcal, weighted, winsorized):\n")
+print(round(sod_dec, 2))
+
+# --- make a lookup tibble for joining back
+sod_scores <- sod_base %>%
+  mutate(
+    # Discrete decile scoring (AHEI-2010 style): lowest decile = 10, highest decile = 0
+    ahei_sodium_dec = case_when(
+      sod_den_w <= sod_dec[1] ~ 10,
+      sod_den_w <= sod_dec[2] ~ 9,
+      sod_den_w <= sod_dec[3] ~ 8,
+      sod_den_w <= sod_dec[4] ~ 7,
+      sod_den_w <= sod_dec[5] ~ 6,
+      sod_den_w <= sod_dec[6] ~ 5,
+      sod_den_w <= sod_dec[7] ~ 4,
+      sod_den_w <= sod_dec[8] ~ 3,
+      sod_den_w <= sod_dec[9] ~ 2,
+      TRUE                    ~ 0
+    ),
+    # Optional: continuous scoring between Q10 (10 pts) and Q90 (0 pts)
+    ahei_sodium_cont = case_when(
+      is.na(sod_den_w)                 ~ NA_real_,
+      sod_den_w <= sod_dec[1]          ~ 10,
+      sod_den_w >= sod_dec[9]          ~ 0,
+      TRUE ~ 10 - ( (sod_den_w - sod_dec[1]) / (sod_dec[9] - sod_dec[1]) ) * 10
+    )
+  ) %>%
+  select(SEQN, ahei_sodium = ahei_sodium_dec, ahei_sodium_cont)
+
+# --- final output used in your component joins
+ahei_sodium_tbl <- sod_scores %>% select(SEQN, ahei_sodium)
+
+# QC
+summary(sod_base$sod_den)     # raw density
+summary(sod_base$sod_den_w)   # winsorized density
+summary(ahei_sodium_tbl$ahei_sodium)
+
+
+# ========= Join all components & compute totals
+ahei_scores <- list(
+  ahei_veg_tbl %>% select(SEQN, ahei_veg),
+  ahei_fruit_tbl %>% select(SEQN, ahei_fruit),
+  ahei_grain_tbl %>% select(SEQN, ahei_wholegrains),
+  ahei_nutsleg_tbl %>% select(SEQN, ahei_nutslegumes),
+  ahei_meat_tbl %>% select(SEQN, ahei_redprocmeat),
+  ahei_longn3_tbl %>% select(SEQN, ahei_longn3),
+  ahei_pufa_tbl %>% select(SEQN, ahei_pufa),
+  ahei_sodium_tbl %>% select(SEQN, ahei_sodium),
+  ahei_ssb_tbl %>% select(SEQN, ahei_ssb),
+  ahei_alcohol_tbl %>% select(SEQN, ahei_alcohol)
+) %>% reduce(left_join, by = "SEQN")
+
+
+# Complete cases & total
+ahei_complete <- ahei_scores %>%
+  filter(if_all(starts_with("ahei_"), ~ !is.na(.))) %>%
+  mutate(ahei_total = rowSums(across(starts_with("ahei_")), na.rm = FALSE))
+
+cat("\nParticipants with complete AHEI components: ", nrow(ahei_complete), "\n")
+
+# Optional: quick overall summaries
+print(summary(ahei_complete$ahei_total))
+
+
+
+
 
 
 
