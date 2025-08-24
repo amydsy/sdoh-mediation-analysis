@@ -1,6 +1,6 @@
-# ================================================================
+# == # == # == # == # == # == # == # == # == # == # == # == # == # == # == #
 # AHEI 1999–2004 — NHANES IFF + MPED per-item (if present) + totals fallback
-# ================================================================
+# == # == # == # == # == # == # == # == # == # == # == # == # == # == # == #
 
 # 1) Paths & Setup ------------------------------------------------
 setwd("/Users/dengshuyue/Desktop/SDOH/analysis")
@@ -172,7 +172,11 @@ nutrients_9904 <- dr_std %>%
     dpa_g       = mean_preserve_na(dpa_g),
     .groups = "drop"
   ) %>% dplyr::left_join(demo_all, by = "SEQN")%>%
-  dplyr::filter(!is.na(RIDAGEYR), RIDAGEYR >= 20)
+  dplyr::filter(!is.na(RIDAGEYR), RIDAGEYR >= 20)%>%
+  # exclude pregnant women (RIAGENDR: 1=male, 2=female; RIDEXPRG: 1=pregnant)
+  dplyr::filter(!(RIAGENDR == 2 & RIDEXPRG == 1))
+# If you also want to drop “unknown” pregnancy status, use:
+# dplyr::filter(!(RIAGENDR == 2 & RIDEXPRG %in% c(1, 3)))
 
 # 5) NHANES IFF (dir$nhanes) + FNDDS DESC -------------------------
 pick_name <- function(nms, candidates) { hits <- candidates[candidates %in% nms]; if (length(hits)) hits[1] else NA_character_ }
@@ -281,8 +285,6 @@ iff_joined <- iff_all %>%
 
 
 
-
-
 # 6) MPED per-item (IFF)------
 # https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fped-databases/
 
@@ -323,24 +325,18 @@ HAS_ITEM_MPED <- nrow(pyr_iff_all) > 0 &&
 
 cat("MPED per-item available? ", HAS_ITEM_MPED, " (rows:", nrow(pyr_iff_all), ")\n")
 
-# 7) Beverages & juice cups from IFF (always) ---------------------
-vegjuice_pat       <- "(?i)(\\bv8\\b|vegetable\\s*juice|veg\\s*juice|tomato\\s*juice|carrot\\s*juice|beet\\s*juice|clamato|low[- ]sodium\\s*vegetable\\s*juice)"
-is_juice_pat       <- "\\bjuice\\b"
-is_cocktail_pat    <- "cocktail|\\bdrink\\b|beverage|ade\\b|punch\\b|nectar"
-milk_coffee_pat    <- "\\bmilk\\b|coffee|tea|cappuccino|latte|mocha|cocoa|hot\\s*chocolate"
-juice_pack_ctx_pat <- "juice\\s*pack(ed)?|packed\\s*in\\s*(its\\s*|own\\s*)?juice|in\\s*(its\\s*|own\\s*)?juice"
-pizza_pat <- "(?i)\\b(pizza|calzone|stromboli)\\b"
-baby_food_pat <- paste0(
-  "(?ix)",                                   # i = case-insensitive, x = ignore spaces/newlines in pattern
-  "(",
-  "\\bbaby\\s*food\\b|",
-  "\\bbabyfood\\b|",
-  "\\binfant\\s*food\\b|",
-  "(?:stage\\s*[1-4]|strained|junior)\\b.*\\b(puree|fruit|vegetable|veg|meat|cereal)\\b|",
-  "\\bpuree(?:d)?\\b.*\\b(baby|infant)\\b",
-  ")"
-)
 
+
+# 7) Beverages → tag SSB & 100% juice (no 0.5x weights here) -----
+#    Output: per-SEQN ssb_serv, fruit_juice_serv, ssb_juice_serv,
+#            and juice cups (for totals fallback).
+
+# beverage-only patterns
+vegjuice_pat       <- stringr::regex("(?:\\bv8\\b|vegetable\\s*juice|veg\\s*juice|tomato\\s*juice|carrot\\s*juice|beet\\s*juice|clamato|low[- ]sodium\\s*vegetable\\s*juice)", ignore_case = TRUE)
+is_juice_pat       <- stringr::regex("\\bjuice\\b", ignore_case = TRUE)
+is_cocktail_pat    <- stringr::regex("cocktail|\\bdrink\\b|beverage|ade\\b|punch\\b|nectar", ignore_case = TRUE)
+milk_coffee_pat    <- stringr::regex("\\bmilk\\b|coffee|tea|cappuccino|latte|mocha|cocoa|hot\\s*chocolate", ignore_case = TRUE)
+juice_pack_ctx_pat <- stringr::regex("juice\\s*pack(ed)?|packed\\s*in\\s*(its\\s*|own\\s*)?juice|in\\s*(its\\s*|own\\s*)?juice", ignore_case = TRUE)
 
 bev_day <- iff_joined %>%
   dplyr::filter(is.na(DAY) | DAY == 1) %>%
@@ -348,13 +344,13 @@ bev_day <- iff_joined %>%
     fl_oz = dplyr::coalesce(GRAMS, 0)/29.5735,
     bev_core    = stringr::str_detect(dl, stringr::regex("soda|cola|soft\\s*drink|\\bpop\\b|lemonade|fruit\\s*(ade|drink|punch)|sports\\s*drink|energy\\s*drink|sweetened\\s*water|smoothie|frappuccino", TRUE)),
     bev_diet    = stringr::str_detect(dl, stringr::regex("\\bdiet\\b|sugar[- ]?free|unsweetened|zero\\b|low\\s*cal", TRUE)),
-    bev_milkct  = stringr::str_detect(dl, stringr::regex(milk_coffee_pat, TRUE)),
+    bev_milkct  = stringr::str_detect(dl, milk_coffee_pat),
     bev_reduced = stringr::str_detect(dl, stringr::regex("reduced\\s*sugar|less\\s*sugar|lower\\s*sugar|50%\\s*less\\s*sugar|\\blight\\b", TRUE)),
     ssb_full_flag = bev_core & !bev_diet & !bev_milkct & !bev_reduced,
     ssb_half_flag = bev_core & !bev_diet & !bev_milkct &  bev_reduced,
-    is_juice    = stringr::str_detect(dl, stringr::regex(is_juice_pat, TRUE)),
-    is_cocktail = stringr::str_detect(dl, stringr::regex(is_cocktail_pat, TRUE)),
-    juice_pack_context = stringr::str_detect(dl, stringr::regex(juice_pack_ctx_pat, TRUE)),
+    is_juice    = stringr::str_detect(dl, is_juice_pat),
+    is_cocktail = stringr::str_detect(dl, is_cocktail_pat),
+    juice_pack_context = stringr::str_detect(dl, juice_pack_ctx_pat),
     juice100_flag = is_juice & !juice_pack_context & !is_cocktail & !bev_diet & !bev_milkct,
     vegjuice_flag = stringr::str_detect(dl, vegjuice_pat)
   ) %>%
@@ -364,7 +360,7 @@ bev_day <- iff_joined %>%
     ssb_serv          = ssb_serv_full + 0.5 * ssb_serv_half,
     fruit_juice_serv  = sum((fl_oz/4) * as.numeric(juice100_flag), na.rm = TRUE),
     ssb_juice_serv    = ssb_serv + fruit_juice_serv,
-    # cups to subtract from totals if we don't have item MPED
+    # cups used only when we *don’t* have item MPED (totals fallback)
     fruit_juice_cups  = sum((fl_oz/8) * as.numeric(juice100_flag), na.rm = TRUE),
     veg_juice_cups    = sum((fl_oz/8) * as.numeric(vegjuice_flag), na.rm = TRUE),
     .by = c(SEQN)
@@ -372,41 +368,36 @@ bev_day <- iff_joined %>%
 
 beverage_seqn <- bev_day %>% dplyr::select(SEQN, ssb_serv, fruit_juice_serv, ssb_juice_serv)
 
+# 8) AHEI inputs → apply exclusions & 0.5× weights ------
+#     Item-level (preferred) or totals fallback if no item MPED
+#     • Vegetables: exclude veg-juice and pizza/calzone/stromboli;
+#                   0.5× mixed dishes and baby foods
+#     • Fruit: exclude 100% fruit juice
+#     • Other (WG, nuts/legumes, red/proc meat): apply 0.5× to mixed/baby
 
 
-iff_joined %>%
-  mutate(dl = tolower(DESC)) %>%
-  filter(str_detect(dl, is_juice_pat)) %>%
-  count(word = str_extract(dl, ".*juice|clamato|\\bv8\\b"), sort = TRUE) %>%
-  print(n = 30)
-
-
-
-
-# 8) Item-level path OR totals-adjusted path ----------------------
 if (HAS_ITEM_MPED) {
-  # join per-item MPED with IFF for DESC/GRAMS (prefer ILINE+FOODCODE; fallback FOODCODE)
+  # join per-item MPED to IFF text/grams
   have_il_iff  <- "ILINE" %in% names(iff_joined)   && any(!is.na(iff_joined$ILINE))
   have_il_mped <- "ILINE" %in% names(pyr_iff_all) && any(!is.na(pyr_iff_all$ILINE))
-  
-  if (have_il_iff && have_il_mped) {
-    mped_iff_joined <- pyr_iff_all %>%
+  mped_iff_joined <- if (have_il_iff && have_il_mped) {
+    pyr_iff_all %>%
       dplyr::left_join(iff_joined %>% dplyr::select(SEQN, DAY, ILINE, FOODCODE, GRAMS, DESC, dl),
                        by = c("SEQN","DAY","ILINE","FOODCODE"))
   } else {
-    mped_iff_joined <- pyr_iff_all %>%
+    pyr_iff_all %>%
       dplyr::left_join(iff_joined %>% dplyr::select(SEQN, DAY, FOODCODE, GRAMS, DESC, dl),
                        by = c("SEQN","DAY","FOODCODE"))
   }
   
-  mixture_flag <- function(desc) {
+  # mixed dish detector (pizza handled separately)
+  is_mixed_dish <- function(desc) {
     x <- stringr::str_to_lower(desc %||% "")
     stringr::str_detect(
       x,
       stringr::regex(
         paste0(
           "soup|stew|casserole|chili|",
-         #  "pizza|calzone|stromboli|",
           "(sandwich|wrap|pita|sub|hoagie|burger)(?!.*veggie)|",
           "burrito|taco|quesadilla|enchilada|nacho|fajita|empanada|",
           "fried\\s*rice|stir[- ]?fry|lo\\s*mein|chow\\s*mein|",
@@ -418,54 +409,112 @@ if (HAS_ITEM_MPED) {
     )
   }
   
+  ##### pizza / baby-food patterns (scoped to item-level rules)----
+  pizza_pat <- stringr::regex("\\b(pizza|calzone|stromboli)\\b", ignore_case = TRUE)
+  baby_food_pat <- stringr::regex(paste(
+    "\\bbaby\\s*food\\b",
+    "\\bbabyfood\\b",
+    "\\binfant\\s*food\\b",
+    "(?:stage\\s*[1-4]|strained|junior)\\b.*\\b(puree|fruit|vegetable|veg|meat|cereal)\\b",
+    "\\bpuree(?:d)?\\b.*\\b(baby|infant)\\b",
+    sep = "|"
+  ), ignore_case = TRUE, comments = TRUE)
+  
+  
+  ##### foods to exclude from vegetable cups (salty/pickled veg)-----
+  pickled_pat <- stringr::regex(
+    "(\\bolives?\\b(?!\\s*oil)|\\bblack\\s*olives?\\b|\\bgreen\\s*olives?\\b|\\bgherkins?\\b|\\bpickles?\\b|\\bpickled\\b|\\brelish(?:es)?\\b|\\bsauerkraut\\b)",
+    ignore_case = TRUE
+  )
+  
+  # ----other patterns ----
+  ##### foods to exclude from vegetable cups
+  sauce_tom_pat <- stringr::regex(
+    "ketchup|catsup|salsa\\b|pasta\\s*sauce|spaghetti\\s*sauce|marinara|tomato\\s*sauce|pizza\\s*sauce|enchilada\\s*sauce|chili\\s*sauce|barbecue\\s*sauce|bbq\\s*sauce",
+    ignore_case = TRUE
+  )
+  dip_pat <- stringr::regex(
+    "spinach\\s*dip|artichoke\\s*dip|vegetable\\s*dip|veg\\s*dip|\\bdip\\b",
+    ignore_case = TRUE
+  )
+  fried_pat <- stringr::regex(
+    "onion\\s*rings?|tempura|fried\\s*(okra|eggplant|zucchini|mushrooms?|green\\s*beans?)",
+    ignore_case = TRUE
+  )
+  starchy_pat <- stringr::regex(
+    "\\b(corn|hominy|maize|plantain|plaintain|yuca|yucca|cassava|taro|malanga|breadfruit|green\\s*peas?)\\b",
+    ignore_case = TRUE
+  )
+  # tighten veg-juice: add bloody mary/mix
+  vegjuice_pat <- stringr::regex(
+    "(?:\\bv8\\b|vegetable\\s*juice|veg\\s*juice|tomato\\s*juice|carrot\\s*juice|beet\\s*juice|clamato|bloody\\s*mary|bloody\\s*mary\\s*mix|low[- ]sodium\\s*vegetable\\s*juice)",
+    ignore_case = TRUE
+  )
+  
   mped_iff_w <- mped_iff_joined %>%
     dplyr::mutate(
-      dl    = stringr::str_to_lower(DESC %||% ""),
-      is_mix = mixture_flag(DESC),
-      is_baby = stringr::str_detect(dl, baby_food_pat) &
+      dl        = stringr::str_to_lower(DESC %||% ""),
+      is_mix    = is_mixed_dish(DESC),
+      is_baby   = stringr::str_detect(dl, baby_food_pat) &
         !stringr::str_detect(dl, "(?i)\\b(infant\\s*formula|formula)\\b") &
         !stringr::str_detect(dl, "(?i)\\bbaby\\s*back\\s*ribs\\b"),
-      # w_mix  = dplyr::if_else(is_mix, 0.5, 1.0),
-      w_mix  = dplyr::if_else(is_mix | is_baby, 0.5, 1.0),
+      item_wt   = dplyr::if_else(is_mix | is_baby, 0.5, 1.0),
+      
+      # existing
       vegjuice_flag = stringr::str_detect(dl, vegjuice_pat),
-      is_juice    = stringr::str_detect(dl, stringr::regex(is_juice_pat, TRUE)),
-      is_cocktail = stringr::str_detect(dl, stringr::regex(is_cocktail_pat, TRUE)),
-      bev_milkct  = stringr::str_detect(dl, stringr::regex(milk_coffee_pat, TRUE)),
-      juice_pack_context = stringr::str_detect(dl, stringr::regex(juice_pack_ctx_pat, TRUE)),
+      pickled_flag  = stringr::str_detect(dl, pickled_pat),
+      starchy_flag  = stringr::str_detect(dl, starchy_pat),   # ← NEW
+      is_juice      = stringr::str_detect(dl, is_juice_pat),
+      is_cocktail   = stringr::str_detect(dl, is_cocktail_pat),
+      bev_milkct    = stringr::str_detect(dl, milk_coffee_pat),
+      juice_pack_context = stringr::str_detect(dl, juice_pack_ctx_pat),
       juice100_flag = is_juice & !juice_pack_context & !is_cocktail & !bev_milkct,
-      pizza_flag = stringr::str_detect(dl, pizza_pat)   
+      pizza_flag    = stringr::str_detect(dl, pizza_pat),
+      
+      # NEW flags
+      sauce_flag    = stringr::str_detect(dl, sauce_tom_pat),
+      dip_flag      = stringr::str_detect(dl, dip_pat),
+      fried_flag    = stringr::str_detect(dl, fried_pat),
+      starchy_flag  = stringr::str_detect(dl, starchy_pat)
     )
   
   item_mixed_seqn <- mped_iff_w %>%
     dplyr::filter(is.na(DAY) | DAY == 1) %>%
     dplyr::transmute(
       SEQN, DAY,
-      # veg_cup_item        = dplyr::if_else(vegjuice_flag, 0,
-      #                                     (dplyr::coalesce(V_TOTAL,0) - dplyr::coalesce(V_POTATO,0))) * w_mix,
       
-      veg_cup_item = dplyr::if_else(
-        vegjuice_flag | pizza_flag, 0,
-        pmax(dplyr::coalesce(V_TOTAL,0) - dplyr::coalesce(V_POTATO,0), 0)
-      ) * dplyr::if_else((is_mix & !pizza_flag) | is_baby, 0.5, 1.0),
+      # base veg cups (already excludes potatoes via V_POTATO)
+      veg_base = pmax(dplyr::coalesce(V_TOTAL,0) - dplyr::coalesce(V_POTATO,0), 0),
       
-      fruit_cup_item      = dplyr::if_else(juice100_flag, 0, dplyr::coalesce(F_TOTAL,0)) * w_mix,
-      wholegr_g_item      = dplyr::coalesce(G_WHL,0) * 28.3495 * w_mix,
-      nuts_serv_item      = dplyr::coalesce(M_NUTSD,0) * w_mix,
-      legumes_serv_item   = dplyr::coalesce(LEGUMES,0) / 0.5 * w_mix,
+      # exclude outright (veg-juice, pizza/calzone/stromboli, pickled/sauerkraut/olives, tomato sauces & dips)
+      veg_excl = vegjuice_flag | pizza_flag | pickled_flag | sauce_flag | dip_flag,
+      
+      # extra 0.5× for fried/starchy veg (on top of mixed/baby 0.5×)
+      extra_wt = dplyr::if_else(fried_flag | starchy_flag, 0.5, 1.0),
+      
+      veg_cup_item =
+        dplyr::if_else(veg_excl, 0, veg_base) * item_wt * extra_wt,
+      
+      # unchanged for other components (still apply item_wt)
+      fruit_cup_item      = dplyr::if_else(juice100_flag, 0, dplyr::coalesce(F_TOTAL,0)) * item_wt,
+      wholegr_g_item      = dplyr::coalesce(G_WHL,0) * 28.3495 * item_wt,
+      nuts_serv_item      = dplyr::coalesce(M_NUTSD,0) * item_wt,
+      legumes_serv_item   = dplyr::coalesce(LEGUMES,0) / 0.5 * item_wt,
       nutsleg_serv_item   = nuts_serv_item + legumes_serv_item,
-      redproc_serv_item   = (dplyr::coalesce(M_MEAT,0) + dplyr::coalesce(M_FRANK,0)) / 3.527 * w_mix
+      redproc_serv_item   = (dplyr::coalesce(M_MEAT,0) + dplyr::coalesce(M_FRANK,0)) / 3.527 * item_wt
     ) %>%
     dplyr::group_by(SEQN) %>%
     dplyr::summarise(
-      veg_cup_eq_item        = sum(veg_cup_item,   na.rm=TRUE),
-      fruit_cup_eq_item      = sum(fruit_cup_item, na.rm=TRUE),
-      wholegr_g_item         = sum(wholegr_g_item, na.rm=TRUE),
-      nuts_legumes_serv_item = sum(nutsleg_serv_item, na.rm=TRUE),
-      redproc_serv_item      = sum(redproc_serv_item, na.rm=TRUE),
-      .groups="drop"
+      veg_cup_eq_item        = sum(veg_cup_item,   na.rm = TRUE),
+      fruit_cup_eq_item      = sum(fruit_cup_item, na.rm = TRUE),
+      wholegr_g_item         = sum(wholegr_g_item, na.rm = TRUE),
+      nuts_legumes_serv_item = sum(nutsleg_serv_item, na.rm = TRUE),
+      redproc_serv_item      = sum(redproc_serv_item, na.rm = TRUE),
+      .groups = "drop"
     )
   
-  # totals fallback (unadjusted; used only if item missing for some SEQN)
+  
+  # totals fallback object (unchanged)
   pyr_tot_fb_base <- pyr_tot_d1 %>%
     dplyr::transmute(
       SEQN,
@@ -477,7 +526,7 @@ if (HAS_ITEM_MPED) {
     )
   
 } else {
-  # no item MPED → adjust totals by subtracting juice cups from IFF
+  # totals-only path: subtract juice cups; no 0.5× available
   item_mixed_seqn <- NULL
   pyr_tot_fb_base <- pyr_tot_d1 %>%
     dplyr::left_join(bev_day %>% dplyr::select(SEQN, fruit_juice_cups, veg_juice_cups), by = "SEQN") %>%
@@ -491,9 +540,23 @@ if (HAS_ITEM_MPED) {
     dplyr::select(SEQN, veg_cup_eq_fb, fruit_cup_eq_fb, wholegr_g_fb, nuts_leg_serv_fb, redproc_serv_fb)
 }
 
+
 summary(item_mixed_seqn$veg_cup_eq_item)
 
 summary(pyr_tot_fb_base$veg_cup_eq_fb)
+
+
+
+mped_iff_w %>%
+  dplyr::mutate(
+    veg_base      = pmax(coalesce(V_TOTAL,0) - coalesce(V_POTATO,0), 0),
+    veg_base_noleg= pmax(coalesce(V_TOTAL,0) - coalesce(V_POTATO,0) - coalesce(LEGUMES,0), 0)
+  ) %>%
+  dplyr::summarise(
+    total_veg         = sum(veg_base, na.rm=TRUE),
+    total_veg_no_leg  = sum(veg_base_noleg, na.rm=TRUE),
+    share_from_legumes= 1 - total_veg_no_leg/total_veg
+  )
 
 
 # 9) Build AHEI input ---------------------------------------------
