@@ -284,9 +284,6 @@ iff_joined <- iff_all %>%
   )
 
 
-readr::write_csv(iff_joined, file.path(dir$output, "joined_fcode.csv"))
-
-
 
 # 6) MPED per-item (IFF)------
 # https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/food-surveys-research-group/docs/fped-databases/

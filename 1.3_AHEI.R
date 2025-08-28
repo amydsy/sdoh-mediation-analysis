@@ -6,7 +6,8 @@ setwd("/Users/dengshuyue/Desktop/SDOH/analysis")
 # Define directory structure
 dir <- list()
 dir$root    <- getwd()
-dir$data    <- file.path(dir$root, "data/nhanes_deit")
+dir$data    <- file.path(dir$root, "data")
+dir$nhanes  <-file.path(dir$root, "data", "nhanes_deit")
 dir$output  <- file.path(dir$root, "output")
 dir$code    <- file.path(dir$root, "code")
 
@@ -153,7 +154,7 @@ print(unmatched_codes)
 
 # 2. calculate AHEI ------
 # --- AHEI Scoring: Adults Only (Age ≥ 20) --- #
-
+library(data.table)
 # Load demographics and filter to adults
 demo_adult <- fread(file.path(dir$data, "SODH_diet_mort_depr.csv")) %>%
   select(SEQN, RIDAGEYR) %>%
@@ -241,6 +242,7 @@ ahei_nutslegumes <- ahei %>%
     ahei_nutslegumes = pmin(nuts_legumes_oz / 1, 1) * 10
   )
 
+summary(ahei_nutslegumes)
 
 # 2.6 Red and processed meat ---------------------------------------------------
 
@@ -255,6 +257,7 @@ ahei_meat <- ahei %>%
     ahei_redprocmeat = (1 - ahei_redprocmeat) * 10
   )
 
+summary(ahei_meat)
 # 2.7 Trans fat (omitted) -----------------------------------
 
 # 2.8 LONG-CHAIN OMEGA-3 (EPA+DHA) ---------------------------------------------
@@ -324,7 +327,7 @@ ahei_alcohol <- ahei %>%
     )
   )
 
-
+summary(ahei_alcohol)
 
 # 2.12 COMBINE ALL COMPONENTS --------------------------------------------
 ahei_combined <- list(
@@ -341,7 +344,7 @@ summary(ahei_combined$ahei_total)
 summary(ahei_combined$ahei_pufa)
 
 # Save AHEI combined scores to data folder
-fwrite(ahei_combined, file = file.path(dir$data, "ahei_combined.csv"))
+# fwrite(ahei_combined, file = file.path(dir$data, "ahei_combined.csv"))
 
 # Histogram of AHEI total score
 ggplot(ahei_combined, aes(x = ahei_total)) +
