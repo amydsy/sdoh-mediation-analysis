@@ -1200,7 +1200,7 @@ message("Wrote: ",
 
 # push to git
 # setwd("/Users/dengshuyue/Desktop/SDOH/analysis/code")
-
-
-
+# system('git add .')
+# system('git commit -m "AHEI 9904 (MPED) and 05-18 (FPED) combined, next step merge to main file for Cox analysis"')
+# system ('git push')
 
