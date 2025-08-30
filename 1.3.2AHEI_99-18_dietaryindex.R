@@ -638,96 +638,568 @@ print(ahei_summary, n = 50)
 # write_csv(ahei_summary, file.path(paths$output, "ahei_9904_summary_unweighted.csv"))
 
 
+# NEW SECTION III ================================================================
+# AHEI (FPED era) 2005–2018 via dietaryindex::AHEI_NHANES_FPED
+# One-shot script: installs packages (if needed), sets folders,
+# runs all cycles, writes outputs, and summary tables.
+# ------------------------------------------------
+# Prereqs (local files expected):
+#   NHANES IND-level IFF XPTs in  dir$nhanes  (e.g., DR1IFF_D.XPT, DR2IFF_D.XPT, …)
+#   FPED IND-level SAS7BDAT in     dir$fped    (e.g., fped_dr1iff_0506.sas7bdat, …)
+# Optional:
+#   If you have 1999–2004 results already saved as
+#     /output/ahei_1999_2004_mped.csv
+#   they’ll be auto-loaded and combined; otherwise FPED-only outputs are produced.
+# ================================================================
 
+# 0) Setup --------------------------------------------------------
+# (edit this if your root path is different)
+root_path <- "/Users/dengshuyue/Desktop/SDOH/analysis"
+setwd(root_path)
 
+need <- c("dplyr","readr","haven","janitor","purrr","stringr","tidyr","rlang")
+to_install <- need[!(need %in% rownames(installed.packages()))]
+if (length(to_install)) install.packages(to_install, repos = "https://cloud.r-project.org")
+lapply(need, require, character.only = TRUE)
 
+if (!requireNamespace("dietaryindex", quietly = TRUE)) install.packages("dietaryindex", repos = "https://cloud.r-project.org")
+library(dietaryindex)
 
+dir <- list(
+  root   = getwd(),
+  data   = file.path(getwd(), "data"),
+  nhanes = file.path(getwd(), "data", "nhanes_deit"),
+  fped   = file.path(getwd(), "data", "fped"),
+  output = file.path(getwd(), "output"),
+  code   = file.path(getwd(), "code")
+)
+invisible(lapply(dir[c("data","nhanes","fped","output","code")],
+                 dir.create, showWarnings = FALSE, recursive = TRUE))
 
+# 1) Helpers ------------------------------------------------------
+# Map 2-yr label -> NHANES suffix letter (for DR1TOT_*.XPT)
+suffix_from_label <- function(label) {
+  switch(label,
+         "2005-2006" = "D", "2007-2008" = "E", "2009-2010" = "F",
+         "2011-2012" = "G", "2013-2014" = "H", "2015-2016" = "I",
+         "2017-2018" = "J", NA_character_
+  )
+}
 
+# Adults (>=20y) & non-pregnant
+drop_children_and_preg <- function(df, demo_path) {
+  demo <- haven::read_xpt(demo_path) %>% janitor::clean_names()
+  has_preg <- "ridexprg" %in% names(demo)
+  demo2 <- demo %>% transmute(seqn, ridageyr, riagendr,
+                              ridexprg = if (has_preg) ridexprg else NA_real_)
+  df %>% janitor::clean_names() %>%
+    dplyr::left_join(demo2, by = "seqn") %>%
+    dplyr::filter(ridageyr >= 20, !(riagendr == 2 & ridexprg == 1)) %>%
+    dplyr::select(-ridexprg)
+}
 
+# Attach WTDRD1 from DR1TOT_<suffix>.XPT (case-insensitive)
+attach_wtdrd1_if_needed <- function(df, nhanes_dir, suffix_letter) {
+  if ("wtdrd1" %in% names(df)) return(df)
+  if (is.na(suffix_letter)) {
+    warning("No suffix letter; cannot attach WTDRD1.")
+    return(df)
+  }
+  patt <- paste0("(?i)^DR1TOT_", suffix_letter, "\\.XPT$")
+  hit  <- list.files(nhanes_dir, pattern = patt, full.names = TRUE)
+  if (length(hit) == 0) {
+    warning("Missing DR1TOT_", suffix_letter, ".XPT — weighted summaries may be NA.")
+    return(df)
+  }
+  wts <- haven::read_xpt(hit[1]) %>% janitor::clean_names() %>% dplyr::select(seqn, wtdrd1)
+  out <- dplyr::left_join(df, wts, by = "seqn")
+  if (!"wtdrd1" %in% names(out)) warning("WTDRD1 still missing after join.")
+  out
+}
 
+# Weighted mean
+w_mean <- function(x, w) {
+  x <- as.numeric(x); w <- as.numeric(w)
+  ok <- is.finite(x) & is.finite(w) & w > 0
+  if (!any(ok)) return(NA_real_)
+  sum(x[ok] * w[ok]) / sum(w[ok])
+}
 
+# Filename tag: "2005-2006" -> "0506"
+cycle_tag <- function(label) {
+  m <- stringr::str_match(label, "^(\\d{4})-(\\d{4})$")
+  if (is.na(m[1,1])) return(gsub("-", "", label))
+  paste0(substr(m[1,2], 3, 4), substr(m[1,3], 3, 4))
+}
 
+# Paths & file guards
+norm_if_exists <- function(p) if (file.exists(p)) normalizePath(p) else p
+is_good_file   <- function(p, min_bytes = 20000L) {
+  is.character(p) && length(p) == 1 && !is.na(p) && file.exists(p) && file.size(p) >= min_bytes
+}
 
-# SECTION III FPED era (2005–2018) ----------------------------------------------------
-## AHEI_NHANES_FPED needs only the IND-level FPED + DR1IFF/DR2IFF paths.
-## If you supply both Day 1 and Day 2, it returns the combined result automatically.
-## See: https://jamesjiadazhan.github.io/dietaryindex_manual/reference/AHEI_NHANES_FPED.html
-
-
+# 2) FPED config (numeric filenames) ------------------------------
 fped_cfg <- list(
-  `2005-2006` = list(demo=file.path(dir$nhanes,"DEMO_D.XPT"),
-                     fped1=file.path(dir$fped,"FPED_DR1IFF_D.SAS7BDAT"),
-                     dr1i =file.path(dir$nhanes,"DR1IFF_D.XPT"),
-                     fped2=file.path(dir$fped,"FPED_DR2IFF_D.SAS7BDAT"),
-                     dr2i =file.path(dir$nhanes,"DR2IFF_D.XPT")),
-  `2007-2008` = list(demo=file.path(dir$nhanes,"DEMO_E.XPT"),
-                     fped1=file.path(dir$fped,"FPED_DR1IFF_E.SAS7BDAT"),
-                     dr1i =file.path(dir$nhanes,"DR1IFF_E.XPT"),
-                     fped2=file.path(dir$fped,"FPED_DR2IFF_E.SAS7BDAT"),
-                     dr2i =file.path(dir$nhanes,"DR2IFF_E.XPT")),
-  `2009-2010` = list(demo=file.path(dir$nhanes,"DEMO_F.XPT"),
-                     fped1=file.path(dir$fped,"FPED_DR1IFF_F.SAS7BDAT"),
-                     dr1i =file.path(dir$nhanes,"DR1IFF_F.XPT"),
-                     fped2=file.path(dir$fped,"FPED_DR2IFF_F.SAS7BDAT"),
-                     dr2i =file.path(dir$nhanes,"DR2IFF_F.XPT")),
-  `2011-2012` = list(demo=file.path(dir$nhanes,"DEMO_G.XPT"),
-                     fped1=file.path(dir$fped,"FPED_DR1IFF_G.SAS7BDAT"),
-                     dr1i =file.path(dir$nhanes,"DR1IFF_G.XPT"),
-                     fped2=file.path(dir$fped,"FPED_DR2IFF_G.SAS7BDAT"),
-                     dr2i =file.path(dir$nhanes,"DR2IFF_G.XPT")),
-  `2013-2014` = list(demo=file.path(dir$nhanes,"DEMO_H.XPT"),
-                     fped1=file.path(dir$fped,"FPED_DR1IFF_H.SAS7BDAT"),
-                     dr1i =file.path(dir$nhanes,"DR1IFF_H.XPT"),
-                     fped2=file.path(dir$fped,"FPED_DR2IFF_H.SAS7BDAT"),
-                     dr2i =file.path(dir$nhanes,"DR2IFF_H.XPT")),
-  `2015-2016` = list(demo=file.path(dir$nhanes,"DEMO_I.XPT"),
-                     fped1=file.path(dir$fped,"FPED_DR1IFF_I.SAS7BDAT"),
-                     dr1i =file.path(dir$nhanes,"DR1IFF_I.XPT"),
-                     fped2=file.path(dir$fped,"FPED_DR2IFF_I.SAS7BDAT"),
-                     dr2i =file.path(dir$nhanes,"DR2IFF_I.XPT")),
-  `2017-2018` = list(demo=file.path(dir$nhanes,"DEMO_J.XPT"),
-                     fped1=file.path(dir$fped,"FPED_DR1IFF_J.SAS7BDAT"),
-                     dr1i =file.path(dir$nhanes,"DR1IFF_J.XPT"),
-                     fped2=file.path(dir$fped,"FPED_DR2IFF_J.SAS7BDAT"),
-                     dr2i =file.path(dir$nhanes,"DR2IFF_J.XPT"))
+  `2005-2006` = list(
+    demo = file.path(dir$nhanes, "DEMO_D.XPT"),
+    fped1= file.path(dir$fped,  "fped_dr1iff_0506.sas7bdat"),
+    dr1i = file.path(dir$nhanes, "DR1IFF_D.XPT"),
+    fped2= file.path(dir$fped,  "fped_dr2iff_0506.sas7bdat"),
+    dr2i = file.path(dir$nhanes, "DR2IFF_D.XPT")
+  ),
+  `2007-2008` = list(
+    demo = file.path(dir$nhanes, "DEMO_E.XPT"),
+    fped1= file.path(dir$fped,  "fped_dr1iff_0708.sas7bdat"),
+    dr1i = file.path(dir$nhanes, "DR1IFF_E.XPT"),
+    fped2= file.path(dir$fped,  "fped_dr2iff_0708.sas7bdat"),
+    dr2i = file.path(dir$nhanes, "DR2IFF_E.XPT")
+  ),
+  `2009-2010` = list(
+    demo = file.path(dir$nhanes, "DEMO_F.XPT"),
+    fped1= file.path(dir$fped,  "fped_dr1iff_0910.sas7bdat"),
+    dr1i = file.path(dir$nhanes, "DR1IFF_F.XPT"),
+    fped2= file.path(dir$fped,  "fped_dr2iff_0910.sas7bdat"),
+    dr2i = file.path(dir$nhanes, "DR2IFF_F.XPT")
+  ),
+  `2011-2012` = list(
+    demo = file.path(dir$nhanes, "DEMO_G.XPT"),
+    fped1= file.path(dir$fped,  "fped_dr1iff_1112.sas7bdat"),
+    dr1i = file.path(dir$nhanes, "DR1IFF_G.XPT"),
+    fped2= file.path(dir$fped,  "fped_dr2iff_1112.sas7bdat"),
+    dr2i = file.path(dir$nhanes, "DR2IFF_G.XPT")
+  ),
+  `2013-2014` = list(
+    demo = file.path(dir$nhanes, "DEMO_H.XPT"),
+    fped1= file.path(dir$fped,  "fped_dr1iff_1314.sas7bdat"),
+    dr1i = file.path(dir$nhanes, "DR1IFF_H.XPT"),
+    fped2= file.path(dir$fped,  "fped_dr2iff_1314.sas7bdat"),
+    dr2i = file.path(dir$nhanes, "DR2IFF_H.XPT")
+  ),
+  `2015-2016` = list(
+    demo = file.path(dir$nhanes, "DEMO_I.XPT"),
+    fped1= file.path(dir$fped,  "fped_dr1iff_1516.sas7bdat"),
+    dr1i = file.path(dir$nhanes, "DR1IFF_I.XPT"),
+    fped2= file.path(dir$fped,  "fped_dr2iff_1516.sas7bdat"),
+    dr2i = file.path(dir$nhanes, "DR2IFF_I.XPT")
+  ),
+  `2017-2018` = list(
+    demo = file.path(dir$nhanes, "DEMO_J.XPT"),
+    fped1= file.path(dir$fped,  "fped_dr1iff_1718.sas7bdat"),
+    dr1i = file.path(dir$nhanes, "DR1IFF_J.XPT"),
+    fped2= file.path(dir$fped,  "fped_dr2iff_1718.sas7bdat"),
+    dr2i = file.path(dir$nhanes, "DR2IFF_J.XPT")
+  )
 )
 
+# 3) Per-cycle runner (robust; Day-2 fallback) -------------------
 run_fped_cycle <- function(cfg, label) {
   message("FPED ", label, " …")
-  di <- dietaryindex::AHEI_NHANES_FPED(
-    FPED_IND_PATH      = cfg$fped1,
-    NUTRIENT_IND_PATH  = cfg$dr1i,
-    FPED_IND_PATH2     = cfg$fped2,
-    NUTRIENT_IND_PATH2 = cfg$dr2i
-    # SSB_code = NULL  # (optional) pass your own FNDDS beverage codes
-  ) %>% janitor::clean_names()
+  # normalize
+  demo  <- norm_if_exists(cfg$demo)
+  dr1i  <- norm_if_exists(cfg$dr1i)
+  dr2i  <- norm_if_exists(cfg$dr2i)
+  fped1 <- norm_if_exists(cfg$fped1)
+  fped2 <- norm_if_exists(cfg$fped2)
   
-  di_adult <- drop_children_and_preg(di, cfg$demo)
+  # require Day-1; Day-2 optional
+  stopifnot(is_good_file(fped1), is_good_file(dr1i))
+  has_day2 <- is_good_file(fped2) && is_good_file(dr2i)
   
-  out <- file.path(dir$output, paste0("ahei_", gsub("-", "", label), "_fped.csv"))
+  # try Day-2; if it errors, fall back to Day-1 only
+  di <- tryCatch({
+    if (has_day2) {
+      dietaryindex::AHEI_NHANES_FPED(
+        FPED_IND_PATH      = fped1,
+        NUTRIENT_IND_PATH  = dr1i,
+        FPED_IND_PATH2     = fped2,
+        NUTRIENT_IND_PATH2 = dr2i
+      )
+    } else {
+      message("  • Day-2 not available/valid → using Day-1 only.")
+      dietaryindex::AHEI_NHANES_FPED(
+        FPED_IND_PATH      = fped1,
+        NUTRIENT_IND_PATH  = dr1i
+      )
+    }
+  }, error = function(e) {
+    message("  • Day-2 read failed (", conditionMessage(e), ") → using Day-1 only.")
+    dietaryindex::AHEI_NHANES_FPED(
+      FPED_IND_PATH      = fped1,
+      NUTRIENT_IND_PATH  = dr1i
+    )
+  }) %>% janitor::clean_names()
+  
+  # adult + non-pregnant
+  di_adult <- drop_children_and_preg(di, demo)
+  
+  # ensure WTDRD1 using cycle label
+  suf <- suffix_from_label(label)
+  di_adult <- attach_wtdrd1_if_needed(di_adult, dir$nhanes, suf)
+  
+  # standardize totals + annotate Day-2
+  di_adult <- di_adult %>%
+    dplyr::mutate(cycle = label, used_day2 = has_day2) %>%
+    dplyr::rename_with(~"AHEI_ALL",    dplyr::any_of(c("ahei_all","AHEI_ALL"))) %>%
+    dplyr::rename_with(~"AHEI_NOETOH", dplyr::any_of(c("ahei_noetoh","AHEI_NOETOH")))
+  
+  # write per-cycle
+  out <- file.path(dir$output, paste0("ahei_", cycle_tag(label), "_fped.csv"))
   readr::write_csv(di_adult, out)
-  invisibly(di_adult)
+  message("Saved: ", out)
+  
+  di_adult
 }
 
-fped_list <- imap(fped_cfg, run_fped_cycle)
-ahei_fped_0518 <- bind_rows(fped_list)
+# 4) Batch 2005–2018 ---------------------------------------------
+ahei_fped_0518 <- purrr::imap(fped_cfg, run_fped_cycle) %>% dplyr::bind_rows()
 
-# Combine & quick sanity checks -------------------------------------------
-ahei_all <- bind_rows(
-  ahei_mped_9904 %>% mutate(cycle_group = "MPED_1999_2004"),
-  ahei_fped_0518 %>% mutate(cycle_group = "FPED_2005_2018")
+# 5) Load 1999–2004 from saved CSV and combine -------------------
+# Your saved file name:
+#   ahei_9904_wjfrt_ssbfix.csv
+# We'll look under `paths$output` if it exists, else `dir$output`.
+
+output_dir <- if (exists("paths") && "output" %in% names(paths)) paths$output else dir$output
+mped_csv   <- file.path(output_dir, "ahei_9904_wjfrt_ssbfix.csv")
+
+if (!file.exists(mped_csv)) {
+  stop("Could not find 1999–2004 file at: ", mped_csv,
+       "\nUpdate the path/filename or place the file there and rerun.")
+}
+
+ahei_mped_9904 <- readr::read_csv(mped_csv, show_col_types = FALSE) %>%
+  janitor::clean_names() %>%
+  # standardize total columns just like FPED era
+  dplyr::rename_with(~"AHEI_ALL",    dplyr::any_of(c("ahei_all","AHEI_ALL"))) %>%
+  dplyr::rename_with(~"AHEI_NOETOH", dplyr::any_of(c("ahei_noetoh","AHEI_NOETOH"))) %>%
+  # ensure we have a used_day2 flag (MPED era: not applicable)
+  dplyr::mutate(used_day2 = NA)
+
+# Bind MPED + FPED
+ahei_all <- dplyr::bind_rows(
+  ahei_mped_9904 %>% dplyr::mutate(cycle_group = "MPED_1999_2004"),
+  ahei_fped_0518 %>% dplyr::mutate(cycle_group = "FPED_2005_2018")
 )
 
-readr::write_csv(ahei_all, file.path(dir$output, "ahei_1999_2018_combined.csv"))
+# Write combined file
+# readr::write_csv(ahei_all, file.path(output_dir, "ahei_1999_2018_combined.csv"))
+# message("Wrote combined: ", file.path(output_dir, "ahei_1999_2018_combined.csv"))
 
-# Print quick distribution of total score (alcohol-included and excluded)
-if (all(c("ahei_all","ahei_noetoh") %in% names(ahei_all))) {
-  cat("\nAHEI_ALL summary:\n"); print(summary(ahei_all$ahei_all))
-  cat("\nAHEI_NOETOH summary:\n"); print(summary(ahei_all$ahei_noetoh))
+
+summary(ahei_all$ahei_ssb_frtj)
+
+summary(ahei_all)
+
+
+
+# 6) Counts / weight sanity (combined) ---------------------------
+counts_by_cycle_all <- ahei_all %>%
+  dplyr::group_by(cycle, cycle_group) %>%
+  dplyr::summarise(
+    n = dplyr::n(),
+    w_na = sum(is.na(wtdrd1)),
+    w_na_pct = round(100 * mean(is.na(wtdrd1)), 2),
+    used_day2 = dplyr::first(used_day2),
+    .groups = "drop"
+  ) %>% dplyr::arrange(cycle_group, cycle)
+
+readr::write_csv(counts_by_cycle_all, file.path(output_dir, "ahei_counts_by_cycle_combined.csv"))
+print(counts_by_cycle_all, n = Inf)
+
+
+
+
+
+
+# ---- Attach WTDRD1 for MPED era (1999–2004) --------------------
+
+# Map cycle -> possible NHANES suffix(es) used in older cycles
+suffix_candidates_mped <- list(
+  "1999-2000" = c("", "_A"),  # 99–00 often has no suffix; sometimes "_A"
+  "2001-2002" = c("_B"),
+  "2003-2004" = c("_C")
+)
+
+# Try to find a Day-1 totals file by cycle (DR1TOT_* or DRXTOT_*)
+find_dr_day1_file <- function(nhanes_dir, cycle_label) {
+  suffs <- suffix_candidates_mped[[cycle_label]]
+  if (is.null(suffs)) suffs <- c("")  # fallback
+  
+  bases <- c("DR1TOT", "DRXTOT")
+  for (base in bases) {
+    for (suf in suffs) {
+      patt <- paste0("(?i)^", base, suf, "\\.XPT$")
+      hit <- list.files(nhanes_dir, pattern = patt, full.names = TRUE)
+      if (length(hit) > 0) return(hit[1])
+    }
+  }
+  
+  # As a last resort: any DR1TOT/DRXTOT present at all
+  hit <- list.files(nhanes_dir, pattern = "(?i)^(DR1TOT|DRXTOT).*\\.XPT$", full.names = TRUE)
+  if (length(hit) > 0) return(hit[1])
+  
+  NA_character_
 }
 
-cat("\nWrote:\n  -", file.path(dir$output, "ahei_1999_2018_combined.csv"), "\n")
+# Read weights from a DR1TOT/DRXTOT file (robust to column naming)
+read_wtdrd1 <- function(path_xpt) {
+  if (is.na(path_xpt) || !file.exists(path_xpt)) return(NULL)
+  df <- haven::read_xpt(path_xpt) %>% janitor::clean_names()
+  # prefer true day-1 dietary weight; fall back to interview 2-yr weight if truly absent (warn)
+  weight_candidates <- c("wtdrd1", "wtdrd1d", "wtdrd1_", "wtint2yr")
+  wcol <- intersect(weight_candidates, names(df))
+  if (!length(wcol)) {
+    warning("No WTDRD1-like column in: ", basename(path_xpt))
+    return(NULL)
+  }
+  dplyr::select(df, seqn, wtdrd1 = !!rlang::sym(wcol[1]))
+}
+
+# Attach weights per cycle for MPED era
+attach_mped_wts <- function(ahei_mped_9904, nhanes_dir) {
+  cycs <- sort(unique(ahei_mped_9904$cycle))
+  out_list <- vector("list", length(cycs))
+  
+  for (i in seq_along(cycs)) {
+    cyc <- cycs[i]
+    piece <- dplyr::filter(ahei_mped_9904, cycle == cyc)
+    
+    p <- find_dr_day1_file(nhanes_dir, cyc)
+    if (is.na(p)) {
+      warning("No DR1TOT/DRXTOT file found for ", cyc, "; leaving WTDRD1 as NA.")
+      out_list[[i]] <- piece
+      next
+    }
+    w <- read_wtdrd1(p)
+    if (is.null(w)) {
+      warning("Could not read WTDRD1 from ", basename(p), " for ", cyc, ".")
+      out_list[[i]] <- piece
+      next
+    }
+    piece2 <- dplyr::left_join(piece, w, by = "seqn")
+    out_list[[i]] <- piece2
+  }
+  dplyr::bind_rows(out_list)
+}
+
+# ---- Run the MPED weight attach, then recompute combined -------
+
+# a) Load your saved 99–04 CSV (already done in your flow)
+#    ahei_mped_9904 <- readr::read_csv(file.path(output_dir, "ahei_9904_wjfrt_ssbfix.csv"), show_col_types = FALSE) %>%
+#      janitor::clean_names() %>%
+#      dplyr::rename_with(~"AHEI_ALL",    dplyr::any_of(c("ahei_all","AHEI_ALL"))) %>%
+#      dplyr::rename_with(~"AHEI_NOETOH", dplyr::any_of(c("ahei_noetoh","AHEI_NOETOH"))) %>%
+#      dplyr::mutate(used_day2 = NA)
+
+# b) Attach weights for MPED era
+ahei_mped_9904 <- attach_mped_wts(ahei_mped_9904, dir$nhanes)
+
+# c) Combine MPED + FPED and write combined
+ahei_all <- dplyr::bind_rows(
+  ahei_mped_9904 %>% dplyr::mutate(cycle_group = "MPED_1999_2004"),
+  ahei_fped_0518 %>% dplyr::mutate(cycle_group = "FPED_2005_2018")
+)
+readr::write_csv(ahei_all, file.path(output_dir, "ahei_1999_2018_combined.csv"))
+message("Wrote combined: ", file.path(output_dir, "ahei_1999_2018_combined.csv"))
+
+# d) Rebuild counts table (combined)
+counts_by_cycle_all <- ahei_all %>%
+  dplyr::group_by(cycle, cycle_group) %>%
+  dplyr::summarise(
+    n = dplyr::n(),
+    w_na = sum(is.na(wtdrd1)),
+    w_na_pct = round(100 * mean(is.na(wtdrd1)), 2),
+    used_day2 = dplyr::first(used_day2),
+    .groups = "drop"
+  ) %>% dplyr::arrange(cycle_group, cycle)
+readr::write_csv(counts_by_cycle_all, file.path(output_dir, "ahei_counts_by_cycle_combined.csv"))
+print(counts_by_cycle_all, n = Inf)
+
+# e) Recompute combined summaries now that 99–04 has weights
+#    (AHEI_ALL & AHEI_NOETOH by cycle + component means)
+#    -- reuse your existing summary blocks below this point --
+
+
+
+# 7) Summary tables (combined; AHEI_ALL as last row) -------------
+# Weighted mean helper already defined earlier: w_mean()
+
+# (a) AHEI_ALL by cycle (combined)
+sum_all_comb <- ahei_all %>%
+  dplyr::group_by(cycle) %>%
+  dplyr::summarise(AHEI_ALL_mean_w = w_mean(AHEI_ALL, wtdrd1),
+                   n = dplyr::n(), .groups = "drop") %>%
+  dplyr::arrange(cycle)
+
+sum_all_last_comb <- tibble::tibble(
+  cycle = "AHEI_ALL",
+  AHEI_ALL_mean_w = w_mean(ahei_all$AHEI_ALL, ahei_all$wtdrd1),
+  n = nrow(ahei_all)
+)
+
+sum_all_out_comb <- dplyr::bind_rows(sum_all_comb, sum_all_last_comb)
+# readr::write_csv(sum_all_out_comb, file.path(output_dir, "ahei_all_by_cycle_combined.csv"))
+
+# (b) AHEI_NOETOH by cycle (combined)
+sum_noetoh_comb <- ahei_all %>%
+  dplyr::group_by(cycle) %>%
+  dplyr::summarise(AHEI_NOETOH_mean_w = w_mean(AHEI_NOETOH, wtdrd1),
+                   n = dplyr::n(), .groups = "drop") %>%
+  dplyr::arrange(cycle)
+
+sum_noetoh_last_comb <- tibble::tibble(
+  cycle = "AHEI_ALL",
+  AHEI_NOETOH_mean_w = w_mean(ahei_all$AHEI_NOETOH, ahei_all$wtdrd1),
+  n = nrow(ahei_all)
+)
+
+sum_noetoh_out_comb <- dplyr::bind_rows(sum_noetoh_comb, sum_noetoh_last_comb)
+# readr::write_csv(sum_noetoh_out_comb, file.path(output_dir, "ahei_noetoh_by_cycle_combined.csv"))
+
+
+# (c) Component means by cycle (combined; weighted) --------------
+
+# 1) Canonical -> explicit alias list
+component_aliases <- list(
+  VEG          = c("VEG","ahei_veg"),
+  FRUIT        = c("FRUIT","ahei_frt"),
+  WHOLEGRAIN   = c("WHOLEGRAIN","ahei_wgrain"),
+  NUTSLEG      = c("NUTSLEG","ahei_nutsleg"),
+  N3           = c("N3","ahei_n3fat"),
+  PUFA         = c("PUFA","ahei_pufa"),
+  TFA          = c("TFA","ahei_tfa"),           # may exist only in MPED era
+  SSB          = c("SSB","ahei_ssb","ahei_ssb_frtj"),
+  REDPROCMEAT  = c("REDPROCMEAT","ahei_redproc"),
+  ALCOHOL      = c("ALCOHOL","ahei_alcohol")
+)
+
+# 2) Fallback regex patterns (if explicit aliases aren’t present)
+pattern_map <- list(
+  VEG          = "(^|_)(veg|vegetable|vegetables)$",
+  FRUIT        = "(^|_)(frt|fruit|fruits)$",
+  WHOLEGRAIN   = "(^|_)(w(hole)?_?grain|wgrain|wholegrains?)$",
+  NUTSLEG      = "(^|_)(nuts?(_?leg(umes)?)?|nutsleg)$",
+  N3           = "(^|_)(n3(_?fat)?|epa_dha|omega3|om?ega?3)$",
+  PUFA         = "(^|_)pufa$",
+  TFA          = "(^|_)tfa$",
+  SSB          = "(^|_)(ssb(_?frtj)?|sugar(_|)?sweet(en(ed)?)?_?bev(erage)?s?)$",
+  REDPROCMEAT  = "(^|_)(red(_?proc)?_?meat|redproc)$",
+  ALCOHOL      = "(^|_)alcohol$"
+)
+
+exclude_cols <- c("AHEI_ALL","AHEI_NOETOH","cycle","wtdrd1","cycle_group","seqn","used_day2")
+all_names <- names(ahei_all)
+candidates <- setdiff(all_names, exclude_cols)
+
+# 3) Build alias->canonical map from explicit aliases that actually exist
+explicit_list <- purrr::imap(component_aliases, function(aliases, canon) {
+  hits <- intersect(aliases, candidates)
+  if (length(hits)) setNames(rep(canon, length(hits)), hits) else NULL
+}) |> purrr::compact()
+
+alias_to_canon_explicit <- if (length(explicit_list)) do.call(c, explicit_list) else c()
+
+# 4) For components still missing, find one column via regex
+missing_components <- setdiff(names(component_aliases), unname(unique(alias_to_canon_explicit)))
+regex_list <- lapply(missing_components, function(canon) {
+  pat <- pattern_map[[canon]]
+  if (is.null(pat)) return(NULL)
+  pool <- setdiff(candidates, names(alias_to_canon_explicit))
+  idx <- which(grepl(pat, pool, ignore.case = TRUE, perl = TRUE))
+  if (length(idx)) setNames(c(canon), pool[idx[1]]) else NULL   # named vector: alias -> canon
+}) |> purrr::compact()
+
+alias_to_canon_regex <- if (length(regex_list)) do.call(c, regex_list) else c()
+
+# 5) Merge maps (names = aliases, values = canonical), no outer name pollution
+alias_to_canon <- c(alias_to_canon_explicit, alias_to_canon_regex)
+
+# Safety/diagnostics
+if (!length(alias_to_canon)) {
+  cat("\nNo component columns detected. Available columns:\n",
+      paste0(" - ", sort(all_names)), sep = "\n")
+  stop("Could not detect component columns in `ahei_all`. Adjust aliases/patterns.")
+}
+
+# Optional: inspect what we mapped
+# print(alias_to_canon)
+
+# 6) Save mapping for transparency
+alias_map_df <- tibble::tibble(
+  alias = names(alias_to_canon),
+  component = unname(alias_to_canon)
+)
+# readr::write_csv(alias_map_df, file.path(output_dir, "ahei_component_alias_mapping_combined.csv"))
+
+# 7) Pivot long and compute weighted means (robust to prefixed keys) ----
+
+# If alias_to_canon exists from a prior run, clean its names (strip "CANON." prefix)
+if (exists("alias_to_canon")) {
+  alias_keys <- names(alias_to_canon)
+  if (!is.null(alias_keys)) {
+    # remove any "<prefix>." before the real column name
+    alias_keys_clean <- sub("^[^.]+\\.", "", alias_keys)
+    names(alias_to_canon) <- alias_keys_clean
+    
+    # de-duplicate keys after cleaning (keep first)
+    alias_to_canon <- alias_to_canon[!duplicated(names(alias_to_canon))]
+  }
+} else {
+  stop("alias_to_canon not found. Re-run the alias/pattern mapping block first.")
+}
+
+# Keep only aliases that actually exist as columns in ahei_all
+cols <- intersect(names(ahei_all), names(alias_to_canon))
+if (length(cols) == 0L) {
+  cat("\nNo usable component columns after cleaning.\nColumns in ahei_all include:\n",
+      paste0(" - ", sort(names(ahei_all))), sep = "\n")
+  stop("No matching component columns found in `ahei_all`.")
+}
+
+# Reduce the map to those columns
+alias_to_canon <- alias_to_canon[cols]
+
+# Do the pivot + weighted summary
+comp_df_combined <- ahei_all %>%
+  dplyr::select(cycle, wtdrd1, dplyr::all_of(cols)) %>%
+  tidyr::pivot_longer(
+    cols      = dplyr::all_of(cols),
+    names_to  = "alias",
+    values_to = "score"
+  ) %>%
+  dplyr::mutate(
+    component = unname(alias_to_canon[alias]),
+    score = as.numeric(score)
+  ) %>%
+  dplyr::group_by(cycle, component) %>%
+  dplyr::summarise(
+    mean_w = w_mean(score, wtdrd1),
+    n      = dplyr::n(),
+    .groups = "drop"
+  ) %>%
+  dplyr::arrange(cycle, component)
+
+readr::write_csv(
+  comp_df_combined,
+  file.path(output_dir, "ahei_component_means_by_cycle_combined.csv")
+)
+
+# (optional) also write the cleaned alias -> canonical mapping actually used
+alias_map_df <- tibble::tibble(
+  alias = names(alias_to_canon),
+  component = unname(alias_to_canon)
+)
+# readr::write_csv(alias_map_df, file.path(output_dir, "ahei_component_alias_mapping_combined.csv"))
+
+message("Wrote: ",
+        file.path(output_dir, "ahei_component_means_by_cycle_combined.csv"),
+        " and alias map: ",
+        file.path(output_dir, "ahei_component_alias_mapping_combined.csv"))
+
+
+
+
+# push to git
+# setwd("/Users/dengshuyue/Desktop/SDOH/analysis/code")
 
 
 
