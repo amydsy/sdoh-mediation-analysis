@@ -260,7 +260,6 @@ ahei_9904 <- bind_rows(results, .id = "cycle") %>%
 dim(ahei_9904)
 table(ahei_9904$cycle)
 
-
 # (optional) write it out
 # write_csv(ahei_9904, "/Users/dengshuyue/Desktop/SDOH/analysis/output/ahei_1999_2004.csv")
 
@@ -998,8 +997,9 @@ ahei_all <- dplyr::bind_rows(
   ahei_mped_9904 %>% dplyr::mutate(cycle_group = "MPED_1999_2004"),
   ahei_fped_0518 %>% dplyr::mutate(cycle_group = "FPED_2005_2018")
 )
-readr::write_csv(ahei_all, file.path(output_dir, "ahei_1999_2018_combined.csv"))
-message("Wrote combined: ", file.path(output_dir, "ahei_1999_2018_combined.csv"))
+
+# readr::write_csv(ahei_all, file.path(output_dir, "ahei_1999_2018_combined.csv"))
+# message("Wrote combined: ", file.path(output_dir, "ahei_1999_2018_combined.csv"))
 
 # d) Rebuild counts table (combined)
 counts_by_cycle_all <- ahei_all %>%
@@ -1194,7 +1194,6 @@ message("Wrote: ",
         file.path(output_dir, "ahei_component_means_by_cycle_combined.csv"),
         " and alias map: ",
         file.path(output_dir, "ahei_component_alias_mapping_combined.csv"))
-
 
 
 
