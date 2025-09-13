@@ -14,3 +14,13 @@ venv/
 data/
 output/
 interim/
+# R artifacts
+.RData
+.RDataTmp*
+.Rhistory
+.Rproj.user/
+
+# local-only folders / old notebooks
+02_covariates_builder_9923_old.ipynb
+code_lu/
+old_ipynb/
