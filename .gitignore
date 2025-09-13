@@ -1,9 +1,16 @@
-code_lu/
-.Rproj.user
-.rdatatmp
-.rdatatmp1
-.rdatatmp2
-.rdatatmp3
-*rdatatmp*
-.RData
-.Rhistory
+# OS / editor / cache
+.DS_Store
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
+*.pyo
+*.~*
+
+# virtual envs
+.venv/
+venv/
+
+# (optional) block accidental data/outputs if they ever appear here
+data/
+output/
+interim/
