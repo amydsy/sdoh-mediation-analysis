@@ -24,3 +24,5 @@ interim/
 02_covariates_builder_9923_old.ipynb
 code_lu/
 old_ipynb/
+nhanes_cache/
+nhanes_cache_mod/
